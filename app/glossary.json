@@ -1,0 +1,30 @@
+{
+  "_comentario": "Jerga -> término Dota. Se protege (palabra completa, sin distinguir mayúsculas) para que no se traduzca literalmente. Puedes añadir tus propias entradas en %APPDATA%/DotaChatTranslator/glossary.json con este mismo formato.",
+  "ru": {
+    "мид": "mid", "мида": "mid", "миду": "mid", "на мид": "to mid",
+    "лес": "jungle", "лесу": "jungle", "лесник": "jungler",
+    "изи": "easy", "нуб": "noob", "нубы": "noobs", "рак": "noob", "раки": "noobs",
+    "вард": "ward", "варды": "wards", "вардов": "wards", "вардами": "wards", "сентри": "sentry",
+    "керри": "carry", "кер": "carry", "саппорт": "support", "сап": "support", "сапы": "supports",
+    "оффлейн": "offlane", "хард": "offlane", "харде": "offlane", "изи лайн": "safe lane", "изи лейн": "safe lane",
+    "лайн": "lane", "лайне": "lane", "лейн": "lane", "лейне": "lane",
+    "рошан": "Roshan", "рош": "Roshan", "роша": "Roshan", "аегис": "aegis", "аег": "aegis",
+    "ульт": "ult", "ульта": "ult", "ульту": "ult", "скилл": "skill", "скиллы": "skills",
+    "бкб": "BKB", "бкбшка": "BKB", "блинк": "blink", "даги": "blink", "даг": "blink",
+    "фарм": "farm", "фармить": "farm", "фармлю": "I'm farming", "фармит": "farms",
+    "пуш": "push", "пушить": "push", "пушим": "let's push", "тп": "TP", "тпшка": "TP",
+    "ганг": "gank", "ганк": "gank", "гангать": "gank", "файт": "fight", "тимфайт": "teamfight",
+    "дефать": "defend", "деф": "defend", "дефаем": "let's defend",
+    "курьер": "courier", "кура": "courier", "куру": "courier",
+    "репорт": "report", "репортите": "report", "руина": "throw", "руинит": "is throwing",
+    "гг": "gg", "вп": "wp", "ммр": "MMR", "сф": "Shadow Fiend", "пудж": "Pudge", "инвокер": "Invoker"
+  },
+  "latin": {
+    "ward": "ward", "wards": "wards", "sentry": "sentry", "mid": "mid", "top": "top", "bot": "bot",
+    "carry": "carry", "support": "support", "supp": "supp", "offlane": "offlane", "safelane": "safelane",
+    "gank": "gank", "push": "push", "farm": "farm", "tp": "TP", "bkb": "BKB", "blink": "blink",
+    "rosh": "Rosh", "roshan": "Roshan", "aegis": "aegis", "ult": "ult", "smoke": "smoke", "stack": "stack",
+    "pull": "pull", "creeps": "creeps", "jungle": "jungle", "noob": "noob", "gg": "gg", "wp": "wp", "mmr": "MMR",
+    "ez": "ez", "izi": "ez", "afk": "AFK", "pls": "pls", "plz": "pls"
+  }
+}

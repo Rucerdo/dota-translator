@@ -1,0 +1,154 @@
+"""Textos de la interfaz (es / en) y lista de idiomas de traducción."""
+
+# Idiomas de traducción (código de Google Translate, nombre nativo)
+LANGUAGES = [
+    ("es", "Español"), ("en", "English"), ("ru", "Русский"), ("zh-CN", "中文 (简体)"), ("zh-TW", "中文 (繁體)"),
+    ("pt", "Português"), ("uk", "Українська"), ("de", "Deutsch"), ("fr", "Français"), ("it", "Italiano"),
+    ("pl", "Polski"), ("tr", "Türkçe"), ("ko", "한국어"), ("ja", "日本語"), ("th", "ไทย"), ("vi", "Tiếng Việt"),
+    ("id", "Bahasa Indonesia"), ("tl", "Filipino"), ("ms", "Bahasa Melayu"), ("ar", "العربية"), ("fa", "فارسی"),
+    ("he", "עברית"), ("el", "Ελληνικά"), ("ro", "Română"), ("cs", "Čeština"), ("hu", "Magyar"), ("sv", "Svenska"),
+    ("fi", "Suomi"), ("bg", "Български"), ("sr", "Српски"), ("kk", "Қазақ"), ("hi", "हिन्दी"),
+]
+LANG_NAMES = dict(LANGUAGES)
+
+
+def lang_label(code: str) -> str:
+    return f"{LANG_NAMES.get(code, code)} ({code})"
+
+
+def lang_from_label(label: str) -> str:
+    return label.rsplit("(", 1)[-1].rstrip(")") if "(" in label else label
+
+
+UI_LANGS = [("es", "Español"), ("en", "English")]
+
+STRINGS = {
+    "es": {
+        "nav_home": "Inicio", "nav_live": "Chat en vivo", "nav_history": "Historial", "nav_settings": "Ajustes",
+        "status_waiting": "Esperando a Dota 2", "status_connected": "Conectado a Dota 2",
+        "status_no_gsi": "Integración no instalada",
+        # inicio
+        "home_title": "Inicio",
+        "card_dota": "Dota 2", "card_connection": "Conexión", "card_session": "Esta sesión",
+        "dota_not_found": "No encontrado. Indica la carpeta en Ajustes.",
+        "gsi_installed": "Integración instalada ✓", "gsi_not_installed": "Integración no instalada",
+        "install": "Instalar integración", "uninstall": "Quitar integración",
+        "conn_waiting": "Esperando datos…\nAbre Dota 2 (reinícialo si acabas de instalar la integración).",
+        "conn_ok": "Recibiendo datos de Dota 2", "match": "Partida",
+        "session_in": "Mensajes traducidos", "session_out": "Mensajes enviados",
+        "quick_title": "Traducción",
+        "translate_to": "Traducir el chat a", "send_in": "Enviar mis mensajes (Ctrl+Enter) en",
+        "auto_team": "Automático (idioma del equipo)",
+        "sw_overlay": "Mostrar overlay en el juego", "sw_outgoing": "Traducir mis mensajes con Ctrl+Enter",
+        "sw_original": "Mostrar el texto original",
+        "tips_title": "Antes de jugar",
+        "tips": "• Pon Dota 2 en «Ventana sin bordes» (Ajustes → Vídeo). En pantalla completa el overlay no se ve.\n"
+                "• Tras instalar la integración, reinicia Dota 2 una vez.\n"
+                "• En el chat de Dota: Enter envía normal, Ctrl+Enter envía traducido.\n"
+                "• Alt+D muestra u oculta el overlay.",
+        # chat en vivo
+        "live_title": "Chat en vivo", "clear": "Limpiar",
+        "live_empty": "Aquí aparecerán los mensajes del chat de Dota 2 y sus traducciones.\n",
+        "test_placeholder": "Escribe algo para probar la traducción…", "test_btn": "Probar",
+        "you": "Tú", "test": "Prueba", "ch_all": "Todos", "ch_team": "Aliados",
+        # colores
+        "blue": "Azul", "teal": "Turquesa", "purple": "Morado", "yellow": "Amarillo", "orange": "Naranja",
+        "pink": "Rosa", "olive": "Oliva", "light_blue": "Celeste", "green": "Verde", "brown": "Marrón",
+        # historial
+        "history_title": "Historial", "search": "Buscar…", "all_matches": "Todas las partidas",
+        "practice": "Práctica / bots", "refresh": "Actualizar", "export": "Exportar CSV",
+        "delete_all": "Borrar todo", "confirm_delete": "¿Borrar todo el historial? No se puede deshacer.",
+        "exported": "Exportado: {path}", "col_time": "Fecha", "col_match": "Partida", "col_dir": "Tipo",
+        "col_channel": "Canal", "col_player": "Jugador", "col_lang": "Idioma", "col_original": "Original",
+        "col_translated": "Traducción", "dir_in": "Recibido", "dir_out": "Enviado", "dir_test": "Prueba",
+        "history_off": "El historial está desactivado en Ajustes.",
+        # ajustes
+        "settings_title": "Ajustes",
+        "sec_general": "General", "ui_lang": "Idioma de la aplicación", "restart_note": "(requiere reiniciar la app)",
+        "sw_history": "Guardar historial de conversaciones",
+        "open_data": "Abrir carpeta de datos",
+        "sec_translation": "Traducción", "fallback_lang": "Si es automático y aún no hay datos, usar",
+        "sw_skip_same": "No mostrar mensajes que ya están en mi idioma",
+        "ignore_list": "Mensajes que no se traducen (separados por comas)",
+        "sec_overlay": "Overlay", "ov_x": "Posición horizontal", "ov_y": "Posición vertical (borde inferior)",
+        "ov_width": "Ancho", "ov_font": "Tamaño de letra", "ov_seconds": "Segundos en pantalla",
+        "ov_lines": "Líneas máximas", "preview": "Vista previa",
+        "sec_hotkeys": "Atajos de teclado", "hk_overlay": "Mostrar/ocultar overlay",
+        "hk_send": "Traducir y enviar en el chat de Dota", "apply": "Aplicar",
+        "sec_dota": "Dota 2", "dota_folder": "Carpeta de Dota 2", "browse": "Examinar…", "detect": "Detectar",
+        "gsi_port": "Puerto local", "invalid_folder": "Esa carpeta no parece de Dota 2 (debe contener game/dota/cfg).",
+        "installed_ok": "Integración instalada. Reinicia Dota 2 para activarla.",
+        "uninstalled_ok": "Integración quitada.",
+        "saved": "Guardado",
+        # errores
+        "err_port": "No se pudo abrir el puerto {port}. ¿Ya hay otra copia de la app abierta?",
+        "preview_1": "иди мид, я на харде", "preview_2": "我们推塔吧",
+    },
+    "en": {
+        "nav_home": "Home", "nav_live": "Live chat", "nav_history": "History", "nav_settings": "Settings",
+        "status_waiting": "Waiting for Dota 2", "status_connected": "Connected to Dota 2",
+        "status_no_gsi": "Integration not installed",
+        "home_title": "Home",
+        "card_dota": "Dota 2", "card_connection": "Connection", "card_session": "This session",
+        "dota_not_found": "Not found. Set the folder in Settings.",
+        "gsi_installed": "Integration installed ✓", "gsi_not_installed": "Integration not installed",
+        "install": "Install integration", "uninstall": "Remove integration",
+        "conn_waiting": "Waiting for data…\nOpen Dota 2 (restart it if you just installed the integration).",
+        "conn_ok": "Receiving data from Dota 2", "match": "Match",
+        "session_in": "Messages translated", "session_out": "Messages sent",
+        "quick_title": "Translation",
+        "translate_to": "Translate chat into", "send_in": "Send my messages (Ctrl+Enter) in",
+        "auto_team": "Automatic (team's language)",
+        "sw_overlay": "Show in-game overlay", "sw_outgoing": "Translate my messages with Ctrl+Enter",
+        "sw_original": "Show original text",
+        "tips_title": "Before playing",
+        "tips": "• Set Dota 2 to “Borderless Window” (Settings → Video). The overlay is hidden in exclusive fullscreen.\n"
+                "• After installing the integration, restart Dota 2 once.\n"
+                "• In Dota chat: Enter sends as usual, Ctrl+Enter sends translated.\n"
+                "• Alt+D shows or hides the overlay.",
+        "live_title": "Live chat", "clear": "Clear",
+        "live_empty": "Dota 2 chat messages and their translations will appear here.\n",
+        "test_placeholder": "Type something to test the translation…", "test_btn": "Test",
+        "you": "You", "test": "Test", "ch_all": "All", "ch_team": "Allies",
+        "blue": "Blue", "teal": "Teal", "purple": "Purple", "yellow": "Yellow", "orange": "Orange",
+        "pink": "Pink", "olive": "Olive", "light_blue": "Light blue", "green": "Green", "brown": "Brown",
+        "history_title": "History", "search": "Search…", "all_matches": "All matches",
+        "practice": "Practice / bots", "refresh": "Refresh", "export": "Export CSV",
+        "delete_all": "Delete all", "confirm_delete": "Delete the whole history? This cannot be undone.",
+        "exported": "Exported: {path}", "col_time": "Date", "col_match": "Match", "col_dir": "Type",
+        "col_channel": "Channel", "col_player": "Player", "col_lang": "Language", "col_original": "Original",
+        "col_translated": "Translation", "dir_in": "Received", "dir_out": "Sent", "dir_test": "Test",
+        "history_off": "History is turned off in Settings.",
+        "settings_title": "Settings",
+        "sec_general": "General", "ui_lang": "App language", "restart_note": "(requires restarting the app)",
+        "sw_history": "Save conversation history",
+        "open_data": "Open data folder",
+        "sec_translation": "Translation", "fallback_lang": "If automatic and nothing detected yet, use",
+        "sw_skip_same": "Hide messages already in my language",
+        "ignore_list": "Messages that are not translated (comma separated)",
+        "sec_overlay": "Overlay", "ov_x": "Horizontal position", "ov_y": "Vertical position (bottom edge)",
+        "ov_width": "Width", "ov_font": "Font size", "ov_seconds": "Seconds on screen",
+        "ov_lines": "Max lines", "preview": "Preview",
+        "sec_hotkeys": "Hotkeys", "hk_overlay": "Show/hide overlay",
+        "hk_send": "Translate and send in Dota chat", "apply": "Apply",
+        "sec_dota": "Dota 2", "dota_folder": "Dota 2 folder", "browse": "Browse…", "detect": "Detect",
+        "gsi_port": "Local port", "invalid_folder": "That folder doesn't look like Dota 2 (it must contain game/dota/cfg).",
+        "installed_ok": "Integration installed. Restart Dota 2 to activate it.",
+        "uninstalled_ok": "Integration removed.",
+        "saved": "Saved",
+        "err_port": "Could not open port {port}. Is another copy of the app already running?",
+        "preview_1": "иди мид, я на харде", "preview_2": "我们推塔吧",
+    },
+}
+
+_current = "en"
+
+
+def set_lang(code: str):
+    global _current
+    _current = code if code in STRINGS else "en"
+
+
+def t(key: str, **kw) -> str:
+    s = STRINGS[_current].get(key) or STRINGS["en"].get(key) or key
+    return s.format(**kw) if kw else s
