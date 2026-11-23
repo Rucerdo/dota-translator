@@ -41,6 +41,8 @@ DEFAULTS = {
     "save_history": True,
     "enable_outgoing": True,
     "overlay_enabled": True,
+    "show_hero_icons": True,
+    "topbar": {},  # ajustes finos de la posición de los retratos (ver app/portraits.py)
     "overlay": {
         "x_frac": 0.01,
         "y_frac": 0.52,

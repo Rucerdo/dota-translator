@@ -31,18 +31,22 @@ class History:
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        cols = {r[1] for r in self.db.execute("PRAGMA table_info(messages)")}
+        if "icon" not in cols:  # migración v1.0.0 → retrato del héroe (PNG)
+            self.db.execute("ALTER TABLE messages ADD COLUMN icon BLOB")
+            self.db.commit()
         self.lock = threading.Lock()
 
     def add(self, *, match_id: str, direction: str, channel: str, player_id, src_lang: str, tgt_lang: str,
-            original: str, translated: str) -> dict:
+            original: str, translated: str, icon: bytes | None = None) -> dict:
         rec = dict(ts=datetime.now().isoformat(timespec="seconds"), match_id=match_id or "", direction=direction,
                    channel=channel or "", player_id=player_id, src_lang=src_lang or "", tgt_lang=tgt_lang or "",
-                   original=original, translated=translated)
+                   original=original, translated=translated, icon=icon)
         with self.lock:
             cur = self.db.execute(
                 "INSERT INTO messages (ts, match_id, direction, channel, player_id, src_lang, tgt_lang, original,"
-                " translated) VALUES (:ts, :match_id, :direction, :channel, :player_id, :src_lang, :tgt_lang,"
-                " :original, :translated)", rec)
+                " translated, icon) VALUES (:ts, :match_id, :direction, :channel, :player_id, :src_lang, :tgt_lang,"
+                " :original, :translated, :icon)", rec)
             self.db.commit()
             rec["id"] = cur.lastrowid
         return rec

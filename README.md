@@ -20,11 +20,12 @@
 
 ## Features
 
-- **Live translation of the in-game chat** shown in a transparent overlay on top of Dota 2, coloured by player.
+- **Live translation of the in-game chat** shown in a transparent overlay on top of Dota 2, with the **portrait of the hero** who's typing and their player colour.
 - **Reply in their language**: type in Dota chat as usual and press **Ctrl+Enter** instead of Enter. Your message is translated into the team's language and sent. Plain Enter still sends it untouched.
 - **Pick your languages**: translate incoming chat into any of 30+ languages; send your messages in a fixed language or let the app detect the team's language automatically.
 - **Conversation history**: every translated message is saved locally, searchable, filterable by match, exportable to CSV.
-- **Knows Dota slang**: `мид`, `варды`, `керри`, `ez mid`… are kept as Dota terms instead of being translated literally (and you can add your own).
+- **Knows Dota**: heroes, items and slang in English, Spanish, Russian and Chinese (`мид`, `варды`, `axe ult`, `肉山`…) are kept as game terms instead of being translated literally, and chat abbreviations (`xq`, `щас`, `idk`…) are expanded first. You can add your own.
+- **Auto-updates**: when a new version is published on GitHub, the app asks whether to install it.
 - **No account, no subscription, no API key.** It's free and always will be.
 - English and Spanish interface.
 
@@ -64,6 +65,7 @@ Dota 2 ──(Game State Integration, localhost)──► Dota Chat Translator �
 - **Translation** uses free public endpoints (Google Translate, with MyMemory as a fallback). If one of them rate-limits, the app automatically switches to the next one for a few minutes.
 - **Sending translated messages** (Ctrl+Enter) only simulates keystrokes while the Dota 2 window is in front: select all → copy → translate → paste → Enter. Nothing is written into the game.
 - **The overlay** is a separate transparent window that lets mouse clicks pass through.
+- **Hero portraits**: GSI only tells *which player* (0–9) wrote a message, not their hero. The top bar of Dota's HUD shows the heroes in that same order, so when a message arrives the app crops that small portrait from the Dota window. It's processed locally and stored only in your history. Positions scale with your resolution automatically; if they don't fit your screen (ultrawide, 4:3…), open **Settings → Overlay → Calibrate portraits**, capture Dota's top bar and move the sliders until the boxes fit the portraits; changes apply live.
 
 ## Is it safe?
 
@@ -72,7 +74,7 @@ Dota 2 ──(Game State Integration, localhost)──► Dota Chat Translator �
   - check the file against the `SHA256SUMS.txt` published with each release: `Get-FileHash .\DotaChatTranslator.exe` in PowerShell;
   - read the source code: every release is built automatically by [GitHub Actions](.github/workflows/release.yml) from this repository;
   - or [run/build it from source](#build-from-source).
-- **Privacy.** There is no telemetry and no account. The **text of chat messages is sent to the translation service** (Google Translate / MyMemory) to be translated, nothing else. History and settings are stored only on your PC.
+- **Privacy.** There is no telemetry and no account. The **text of chat messages is sent to the translation service** (Google Translate / MyMemory) to be translated, nothing else. Hero portraits are captured and kept locally. On startup the app asks GitHub's public API whether there's a new version (can be turned off in Settings). History and settings are stored only on your PC.
 
 ## Settings and data
 
@@ -103,7 +105,7 @@ Everything is stored in `%APPDATA%\DotaChatTranslator\` (Settings → *Open data
 ## Limitations
 
 - **Windows only**, Dota 2 in borderless or windowed mode.
-- GSI identifies the sender only by **player colour** (slot), not by name or hero.
+- GSI identifies the sender only by **player colour** (slot), not by name or hero; the hero portrait is taken from the screen, so it needs Dota's top bar to be visible (calibrated on 16:9; other aspect ratios may need a quick calibration in Settings).
 - Free translation services are unofficial endpoints: quality is good but not perfect, and they could change or limit usage at any time.
 
 ## Build from source

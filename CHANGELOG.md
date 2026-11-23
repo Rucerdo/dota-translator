@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.1.0] - 2026-11-23
+
+### Added
+- **Hero portraits**: the portrait of the hero who is typing appears next to each message in the overlay, the live
+  chat and the history. It's cropped from Dota's top bar (GSI only provides the player slot) and greyed out if the
+  hero is dead. Stored with each message in the history.
+- **Live portrait calibrator** (Settings → Overlay → Calibrate portraits): captures Dota's top bar, draws the 10
+  boxes on top and lets you move them with sliders; changes apply instantly. Positions scale with the resolution
+  automatically (1080p, 1440p, 4K), the calibrator covers ultrawide, 16:10 or 4:3 screens.
+- **Automatic updates** from GitHub Releases: on startup the app checks for a newer version, shows the release
+  notes and offers to update, skip that version or remind later. Downloads with a progress bar, verifies the
+  SHA-256 and replaces itself. Can be turned off in Settings.
+- **Hero names** in the glossary (English, Russian and Chinese names and nicknames): `axe ult doom` no longer
+  becomes "hacha ult fatalidad".
+- **Chinese glossary** (`肉山` → Roshan, `真眼` → Sentry Ward, `屠夫` → Pudge…), matched without word boundaries.
+- **Word stems** in the glossary (`вард*` covers варды, вардов, вардами…; `wardear`, `pusheamos`…).
+- **Abbreviation expansion** before translating, so they come out in the right language: `xq` → porque,
+  `щас` → сейчас, `спс` → спасибо, `го` → давай, `idk` → I don't know…
+
+### Fixed
+- Glossary entries that broke normal sentences: `se` (turned "no sé" into "Silver Edge"), `as`, `off`, `safe`,
+  `miss`, `force`, `phase`, `bots`, `назад`, `даст`, among others. Wrong mappings such as `стиков` → Magic Wand.
+- The new version waits for the previous one to release the GSI port when restarting after an update.
+
 ## [1.0.0] - 2026-11-23
 
 First public release.
@@ -11,5 +35,5 @@ First public release.
 - Choice of incoming and outgoing languages (30+ languages, automatic team-language detection).
 - Local conversation history (SQLite) with search, match filter and CSV export.
 - Free translation without API keys, with automatic fallback between providers when one rate-limits.
-- Dota slang glossary (`мид` → mid, `варды` → wards…) that users can extend.
+- Dota slang glossary that users can extend.
 - One-click install/removal of the GSI integration; automatic Dota 2 folder detection.

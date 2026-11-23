@@ -1,4 +1,5 @@
 """Ventana principal (CustomTkinter): Inicio, Chat en vivo, Historial y Ajustes."""
+import io
 import logging
 import os
 import queue
@@ -10,10 +11,11 @@ from tkinter import filedialog, messagebox, ttk
 
 import customtkinter as ctk
 import keyboard
+from PIL import Image, ImageTk
 
 from . import APP_NAME, __version__
 from . import config as cfgmod
-from . import dota, updater
+from . import dota, portraits, updater
 from .core import Engine
 from .gsi import SLOT_COLORS
 from .i18n import LANGUAGES, UI_LANGS, lang_from_label, lang_label, set_lang, t
@@ -27,6 +29,17 @@ GREEN, YELLOW, RED, ORANGE, CYAN = "#5FCF80", "#F2C94C", "#E5534B", "#FFB74D", "
 
 def font(size=13, weight="normal"):
     return ctk.CTkFont(family="Segoe UI", size=size, weight=weight)
+
+
+def png_photo(png: bytes | None, height: int, master) -> ImageTk.PhotoImage | None:
+    if not png:
+        return None
+    try:
+        img = Image.open(io.BytesIO(png))
+        return ImageTk.PhotoImage(img.resize((max(1, round(img.width * height / img.height)), height),
+                                             Image.LANCZOS), master=master)
+    except Exception:
+        return None
 
 
 class App(ctk.CTk):
@@ -297,6 +310,7 @@ class App(ctk.CTk):
         self.live.insert("end", t("live_empty"), "muted")
         self.live.configure(state="disabled")
         self._live_empty = True
+        self._live_imgs: list = []  # referencias a los PhotoImage (si no, Tk los borra)
         bar = ctk.CTkFrame(p, fg_color="transparent")
         bar.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         bar.grid_columnconfigure(0, weight=1)
@@ -318,6 +332,7 @@ class App(ctk.CTk):
         self.live.configure(state="normal")
         self.live.delete("1.0", "end")
         self.live.configure(state="disabled")
+        self._live_imgs.clear()
 
     def _who(self, rec) -> tuple[str, str]:
         if rec["direction"] == "out":
@@ -340,6 +355,11 @@ class App(ctk.CTk):
             self.live.delete("1.0", "end")
             self._live_empty = False
         self.live.insert("end", f"{ts}  ", "time")
+        photo = png_photo(rec.get("icon"), 26, self)
+        if photo is not None:
+            self.live._textbox.image_create("end", image=photo, padx=2, align="center")
+            self.live.insert("end", " ")
+            self._live_imgs = self._live_imgs[-300:] + [photo]
         self.live.insert("end", f"{ch}{who}: ", tag)
         self.live.insert("end", rec["translated"] + "\n", "white")
         if rec["translated"].strip().lower() != rec["original"].strip().lower():
@@ -373,9 +393,10 @@ class App(ctk.CTk):
 
         style = ttk.Style(self)
         style.theme_use("clam")
-        style.configure("H.Treeview", background=CARD, fieldbackground=CARD, foreground=TEXT, rowheight=28,
+        style.configure("H.Treeview", background=CARD, fieldbackground=CARD, foreground=TEXT, rowheight=30,
                         borderwidth=0, bordercolor=CARD, lightcolor=CARD, darkcolor=CARD, font=("Segoe UI", 10))
         style.layout("H.Treeview", [("Treeview.treearea", {"sticky": "nswe"})])  # sin marco de foco
+        style.configure("H.Treeview", indent=0)  # la columna #0 solo lleva el retrato, sin sangría de árbol
         style.configure("H.Treeview.Heading", background=SIDEBAR, foreground=MUTED, relief="flat",
                         font=("Segoe UI", 10, "bold"), padding=6)
         style.map("H.Treeview", background=[("selected", "#3A2A28")], foreground=[("selected", TEXT)])
@@ -388,7 +409,10 @@ class App(ctk.CTk):
         cols = [("ts", "col_time", 92), ("match", "col_match", 92), ("dir", "col_dir", 72),
                 ("channel", "col_channel", 66), ("player", "col_player", 78), ("lang", "col_lang", 78),
                 ("original", "col_original", 100), ("translated", "col_translated", 100)]
-        self.tree = ttk.Treeview(wrap, columns=[c[0] for c in cols], show="headings", style="H.Treeview")
+        self.tree = ttk.Treeview(wrap, columns=[c[0] for c in cols], show="tree headings", style="H.Treeview")
+        self.tree.column("#0", width=58, minwidth=58, stretch=False, anchor="center")  # retrato del héroe
+        self.tree.heading("#0", text="")
+        self._h_imgs: dict[str, object] = {}
         for key, label, w in cols:
             self.tree.heading(key, text=t(label), anchor="w")
             self.tree.column(key, width=w, minwidth=50, anchor="w", stretch=key in ("original", "translated"))
@@ -420,6 +444,7 @@ class App(ctk.CTk):
         rows = h.query(self.h_session_map.get(self.v_session.get()), self.h_search.get().strip())
         self.tree.delete(*self.tree.get_children())
         self.h_rows = {}
+        self._h_imgs = {}
         dirs = {"in": t("dir_in"), "out": t("dir_out"), "test": t("dir_test")}
         chans = {"all": t("ch_all"), "team": t("ch_team")}
         for r in rows:
@@ -427,12 +452,15 @@ class App(ctk.CTk):
             player = t("you") if r["direction"] == "out" else (
                 t(SLOT_COLORS[pid][0]) if isinstance(pid, int) and 0 <= pid < 10 else "")
             mid = r["match_id"]
-            iid = self.tree.insert("", "end", values=(
+            photo = png_photo(r.get("icon"), 24, self)
+            iid = self.tree.insert("", "end", image=photo or "", values=(
                 r["ts"][5:16].replace("T", " "), t("practice") if mid in ("", "0") else mid,
                 dirs.get(r["direction"], ""),
                 chans.get(r["channel"], ""), player, f"{r['src_lang']}→{r['tgt_lang']}",
                 r["original"], r["translated"]))
             self.h_rows[iid] = r
+            if photo is not None:
+                self._h_imgs[iid] = photo
         self._h_current = rows
         if not self.cfg.get("save_history", True) and not rows:
             self._set_detail(t("history_off"))
@@ -545,8 +573,16 @@ class App(ctk.CTk):
                               progress_color=ACCENT, button_hover_color=ACCENT_HOVER)
             s.set(cfg["overlay"][ck])
             s.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        ctk.CTkButton(ov, text=t("preview"), width=140, fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                      command=e.preview_overlay).grid(row=8, column=0, padx=16, pady=(8, 16), sticky="w")
+        self.v_icons = tk.BooleanVar(value=cfg.get("show_hero_icons", True))
+        ctk.CTkSwitch(ov, text=t("sw_hero_icons"), variable=self.v_icons, progress_color=ACCENT, font=font(13),
+                      command=lambda: e.set("show_hero_icons", bool(self.v_icons.get()))).grid(
+            row=8, column=0, columnspan=2, padx=16, pady=7, sticky="w")
+        ob = ctk.CTkFrame(ov, fg_color="transparent")
+        ob.grid(row=9, column=0, columnspan=2, padx=16, pady=(8, 16), sticky="w")
+        ctk.CTkButton(ob, text=t("preview"), width=140, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                      command=e.preview_overlay).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(ob, text=t("test_capture"), width=200, fg_color=CARD2, hover_color=ACCENT,
+                      command=lambda: PortraitCalibrator(self)).pack(side="left")
 
         # --- Atajos
         hk = section(t("sec_hotkeys"))
@@ -668,6 +704,142 @@ class App(ctk.CTk):
     def on_close(self):
         self.engine.shutdown()
         self.destroy()
+
+
+class PortraitCalibrator(ctk.CTkToplevel):
+    """Calibración en vivo de dónde están los retratos en la barra superior de Dota.
+
+    Se captura UNA vez la franja superior de la ventana de Dota; al mover los deslizadores solo se
+    redibujan los recuadros y los recortes sobre esa captura, así el ajuste es instantáneo."""
+    VIEW_W = 900          # ancho de la vista previa en píxeles
+    VIEW_HALF_SPAN = 470  # media anchura visible alrededor del centro (a 1080 px)
+
+    def __init__(self, app: App):
+        super().__init__(app, fg_color=BG)
+        self.app = app
+        self.title(t("capture_title"))
+        self.resizable(False, False)
+        self.transient(app)
+        self.strip = None   # (imagen, client)
+        self._photos: list = []
+        self.values = {**portraits.DEFAULT_TOPBAR, **(app.cfg.get("topbar") or {})}
+
+        ctk.CTkLabel(self, text=t("capture_help"), font=font(12), text_color=MUTED, wraplength=self.VIEW_W,
+                     justify="left").grid(row=0, column=0, columnspan=2, padx=18, pady=(16, 10), sticky="w")
+        self.view = tk.Canvas(self, width=self.VIEW_W, height=90, bg=CARD, highlightthickness=0)
+        self.view.grid(row=1, column=0, columnspan=2, padx=18)
+        self.tiles = tk.Canvas(self, width=self.VIEW_W, height=76, bg=BG, highlightthickness=0)
+        self.tiles.grid(row=2, column=0, columnspan=2, padx=18, pady=(8, 6))
+
+        sl = ctk.CTkFrame(self, fg_color=CARD, corner_radius=12)
+        sl.grid(row=3, column=0, columnspan=2, padx=18, pady=8, sticky="ew")
+        sl.grid_columnconfigure((1, 4), weight=1)
+        self.sliders, self.labels = {}, {}
+        for i, (key, (lo, hi)) in enumerate(portraits.CALIBRATION_RANGES.items()):
+            r, c = divmod(i, 2)
+            base = c * 3
+            ctk.CTkLabel(sl, text=t(f"cal_{key}"), font=font(12), text_color=TEXT).grid(
+                row=r, column=base, padx=(14, 6), pady=8, sticky="w")
+            s = ctk.CTkSlider(sl, from_=lo, to=hi, number_of_steps=hi - lo, width=190, button_color=ACCENT,
+                              progress_color=ACCENT, button_hover_color=ACCENT_HOVER,
+                              command=lambda v, k=key: self._on_slider(k, v))
+            s.set(self.values[key])
+            s.grid(row=r, column=base + 1, pady=8, sticky="ew")
+            lbl = ctk.CTkLabel(sl, text=str(self.values[key]), width=40, font=font(12), text_color=MUTED)
+            lbl.grid(row=r, column=base + 2, padx=(4, 14))
+            self.sliders[key], self.labels[key] = s, lbl
+
+        bar = ctk.CTkFrame(self, fg_color="transparent")
+        bar.grid(row=4, column=0, columnspan=2, padx=18, pady=(6, 16), sticky="ew")
+        self.btn_cap = ctk.CTkButton(bar, text=t("calib_capture"), width=200, fg_color=ACCENT,
+                                     hover_color=ACCENT_HOVER, command=lambda: self._capture(3))
+        self.btn_cap.pack(side="left")
+        ctk.CTkButton(bar, text=t("calib_save"), width=120, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                      command=self._save).pack(side="right")
+        ctk.CTkButton(bar, text=t("calib_reset"), width=120, fg_color=CARD2, hover_color=CARD,
+                      command=self._reset).pack(side="right", padx=8)
+        self._redraw()
+        self.after(100, lambda: (self.lift(), self.focus_force()))
+
+    # ---------- captura ----------
+    def _capture(self, n: int):
+        if n > 0:
+            self.btn_cap.configure(text=t("capture_countdown", n=n), state="disabled")
+            self.after(1000, lambda: self._capture(n - 1))
+            return
+        self.btn_cap.configure(text=t("calib_capture"), state="normal")
+        strip = portraits.capture_strip()
+        self.lift()
+        self.focus_force()
+        if strip is None:
+            messagebox.showwarning(APP_NAME, t("capture_none"), parent=self)
+            return
+        from PIL import ImageStat
+        if ImageStat.Stat(strip[0].convert("L")).mean[0] < 3:
+            messagebox.showwarning(APP_NAME, t("capture_black"), parent=self)
+        self.strip = strip
+        self._redraw()
+
+    # ---------- ajustes ----------
+    def _on_slider(self, key: str, value: float):
+        self.values[key] = int(round(value))
+        self.labels[key].configure(text=str(self.values[key]))
+        if self.values["bottom"] <= self.values["top"] + 5:  # mantener un alto mínimo
+            self.values["bottom"] = self.values["top"] + 6
+            self.sliders["bottom"].set(self.values["bottom"])
+            self.labels["bottom"].configure(text=str(self.values["bottom"]))
+        self._redraw()
+
+    def _reset(self):
+        self.values = dict(portraits.DEFAULT_TOPBAR)
+        for k, s in self.sliders.items():
+            s.set(self.values[k])
+            self.labels[k].configure(text=str(self.values[k]))
+        self._redraw()
+
+    def _save(self):
+        # Solo se guardan las claves que difieren de los valores por defecto
+        diff = {k: v for k, v in self.values.items() if portraits.DEFAULT_TOPBAR.get(k) != v}
+        self.app.engine.set("topbar", diff)
+        messagebox.showinfo(APP_NAME, t("calib_saved"), parent=self)
+
+    # ---------- dibujo ----------
+    def _redraw(self):
+        self.view.delete("all")
+        self.tiles.delete("all")
+        self._photos = []
+        if self.strip is None:
+            self.view.create_text(self.VIEW_W // 2, 45, text=t("calib_waiting"), fill=MUTED,
+                                  font=("Segoe UI", 12))
+            return
+        img, client = self.strip
+        w, h = client[2], client[3]
+        s = h / 1080.0
+        cx, span = w / 2, self.VIEW_HALF_SPAN * s
+        left = max(0, int(cx - span))
+        crop = img.crop((left, 0, min(img.width, int(cx + span)), img.height))
+        k = self.VIEW_W / crop.width
+        view_h = max(1, int(crop.height * k))
+        self.view.configure(height=view_h)
+        photo = ImageTk.PhotoImage(crop.resize((self.VIEW_W, view_h), Image.LANCZOS), master=self)
+        self._photos.append(photo)
+        self.view.create_image(0, 0, image=photo, anchor="nw")
+        x = 6
+        for pid in range(10):
+            box = portraits.tile_box(pid, client, self.values)
+            color = SLOT_COLORS[pid][1]
+            self.view.create_rectangle((box[0] - left) * k, box[1] * k, (box[2] - left) * k, box[3] * k,
+                                       outline=color, width=2)
+            tile = img.crop(box)
+            if tile.width > 0 and tile.height > 0:
+                th = 46
+                tw = min(84, max(1, round(tile.width * th / tile.height)))
+                tp = ImageTk.PhotoImage(tile.resize((tw, th), Image.LANCZOS), master=self)
+                self._photos.append(tp)
+                self.tiles.create_image(x, 4, image=tp, anchor="nw")
+                self.tiles.create_rectangle(x - 1, 3, x + tw, 4 + th, outline=color, width=2)
+                self.tiles.create_text(x + tw // 2, 64, text=str(pid), fill=color, font=("Segoe UI", 10, "bold"))
+                x += tw + (14 if pid == 4 else 6)
 
 
 class UpdateDialog(ctk.CTkToplevel):

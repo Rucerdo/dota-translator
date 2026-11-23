@@ -1,9 +1,12 @@
 """Overlay transparente sobre el juego: siempre encima y deja pasar los clics."""
 import ctypes
+import io
 import queue
 import time
 import tkinter as tk
 import tkinter.font as tkfont
+
+from PIL import Image, ImageTk
 
 user32 = ctypes.windll.user32
 GWL_EXSTYLE = -20
@@ -19,7 +22,8 @@ class Overlay:
     def __init__(self, master: tk.Misc, cfg: dict, enabled: bool = True):
         self.cfg = dict(cfg)
         self.q: queue.Queue = queue.Queue()
-        self.lines: list[tuple[float, list[tuple[str, str]]]] = []
+        # (hora, segmentos, icono PNG, PhotoImage ya escalado o None)
+        self.lines: list[tuple[float, list[tuple[str, str]], bytes | None, object]] = []
         self.enabled = enabled
 
         self.win = tk.Toplevel(master)
@@ -61,9 +65,21 @@ class Overlay:
         self.win.after(2000, self._keep_on_top)
 
     # ---------- API thread-safe ----------
-    def push(self, segments: list[tuple[str, str]]):
-        """segments = [(texto, color), ...]; color GRAY = línea secundaria pequeña."""
-        self.q.put(("line", segments))
+    def push(self, segments: list[tuple[str, str]], icon: bytes | None = None):
+        """segments = [(texto, color), ...]; color GRAY = línea secundaria pequeña.
+        icon = PNG del retrato del héroe (opcional)."""
+        self.q.put(("line", (segments, icon)))
+
+    def _photo(self, icon: bytes | None):
+        if not icon:
+            return None
+        try:
+            img = Image.open(io.BytesIO(icon))
+            h = int(self.font.metrics("linespace") * 1.75)
+            w = max(1, round(img.width * h / img.height))
+            return ImageTk.PhotoImage(img.resize((w, h), Image.LANCZOS), master=self.win)
+        except Exception:
+            return None
 
     def set_enabled(self, enabled: bool):
         self.q.put(("enabled", enabled))
@@ -81,7 +97,8 @@ class Overlay:
             while True:
                 kind, data = self.q.get_nowait()
                 if kind == "line":
-                    self.lines.append((time.time(), data))
+                    segs, icon = data
+                    self.lines.append((time.time(), segs, icon, self._photo(icon)))
                     self.lines = self.lines[-int(self.cfg["max_lines"]):]
                 elif kind == "enabled":
                     self.enabled = (not self.enabled) if data is None else data
@@ -92,12 +109,13 @@ class Overlay:
                         self.win.withdraw()
                 elif kind == "cfg":
                     self.cfg = data
-                    self._layout()
+                    self._layout()  # la fuente cambia: reescalar iconos
+                    self.lines = [(t0, s, ic, self._photo(ic)) for t0, s, ic, _ in self.lines]
                 changed = True
         except queue.Empty:
             pass
         now = time.time()
-        alive = [l for l in self.lines if now - l[0] < float(self.cfg["line_seconds"])]
+        alive = [ln for ln in self.lines if now - ln[0] < float(self.cfg["line_seconds"])]
         if len(alive) != len(self.lines):
             self.lines, changed = alive, True
         if changed:
@@ -111,27 +129,35 @@ class Overlay:
                                     anchor="nw", width=width, tags=tag)
         return self.canvas.create_text(x, y, text=txt, fill=color, font=font, anchor="nw", width=width, tags=tag)
 
-    def _draw_line(self, segs, tag):
-        x, y = 4, 0
+    def _draw_line(self, segs, tag, photo=None):
+        x0 = 4
+        if photo is not None:
+            pw, ph = photo.width(), photo.height()
+            self.canvas.create_rectangle(3, 0, 4 + pw, 1 + ph, outline="#000001", tags=tag)
+            self.canvas.create_image(4, 1, image=photo, anchor="nw", tags=tag)
+            x0 = 4 + pw + 8
+        x, y = x0, 0
         for txt, color in segs:
             small = color == GRAY
             f = self.small if small else self.font
             if small:
-                bbox = self.canvas.bbox(tag)
-                x, y = 22, (bbox[3] if bbox else 0)
+                text_bbox = [self.canvas.bbox(i) for i in self.canvas.find_withtag(tag)
+                             if self.canvas.type(i) == "text"]
+                bottom = max((b[3] for b in text_bbox if b), default=0)
+                x, y = x0 + 4, bottom
             item = self._text(x, y, txt, color, f, tag)
             bb = self.canvas.bbox(item)
             if not small and bb:
                 x = bb[2] + 4
                 if x > self.w * 0.6:
-                    x, y = 4, bb[3]
+                    x, y = x0, bb[3]
 
     def _redraw(self):
         self.canvas.delete("all")
         y = self.h
-        for i, (_, segs) in enumerate(reversed(self.lines)):
+        for i, (_, segs, _icon, photo) in enumerate(reversed(self.lines)):
             tag = f"L{i}"
-            self._draw_line(segs, tag)
+            self._draw_line(segs, tag, photo)
             bbox = self.canvas.bbox(tag)
             lh = (bbox[3] - bbox[1]) if bbox else 20
             y -= lh + 4

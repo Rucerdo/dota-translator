@@ -14,7 +14,8 @@ from .history import History
 from .i18n import t
 from .outgoing import OutgoingTranslator
 from .overlay import GRAY, Overlay
-from .translator import translate, translate_chat
+from .portraits import PortraitCache
+from .translator import translate_chat
 
 log = logging.getLogger(__name__)
 ORANGE, CYAN = "#FFB74D", "#4FC3F7"
@@ -32,6 +33,7 @@ class Engine:
         self.recent: dict[str, float] = {}
         self.sent: dict[str, float] = {}
         self.stats = {"in": 0, "out": 0}
+        self.portraits = PortraitCache()
         self.lock = threading.Lock()
         self._hotkeys: list = []
         self.dota_dir = dota.normalize(cfg.get("dota_dir")) or dota.find_dota_dir()
@@ -134,6 +136,12 @@ class Engine:
         threading.Thread(target=self._process_incoming, args=(msg,), daemon=True).start()
 
     def _process_incoming(self, msg: ChatMessage):
+        icon = None
+        if self.cfg.get("show_hero_icons", True):
+            try:  # primero el retrato: cuanto antes, más fiel al momento del mensaje
+                icon = self.portraits.get(msg.match_id, msg.player_id, self.cfg.get("topbar"))
+            except Exception:
+                log.exception("no se pudo obtener el retrato del héroe")
         target = self.cfg["incoming_target_lang"]
         try:
             translated, detected = translate_chat(msg.text, target)
@@ -147,7 +155,8 @@ class Engine:
         if same and self.cfg.get("skip_if_source_is_target", True):
             return
         self.stats["in"] += 1
-        rec = self._record("in", msg.match_id, msg.channel, msg.player_id, detected, target, msg.text, translated)
+        rec = self._record("in", msg.match_id, msg.channel, msg.player_id, detected, target, msg.text, translated,
+                           icon=icon)
         self._show(rec)
 
     # ---------- mensajes salientes ----------
@@ -180,9 +189,10 @@ class Engine:
                             "#FFFFFF"), (f"zh-CN: {t('preview_2')}", GRAY)])
 
     # ---------- utilidades ----------
-    def _record(self, direction, match_id, channel, player_id, src, tgt, original, translated, save=True) -> dict:
+    def _record(self, direction, match_id, channel, player_id, src, tgt, original, translated, save=True,
+                icon: bytes | None = None) -> dict:
         kw = dict(match_id=match_id, direction=direction, channel=channel, player_id=player_id,
-                  src_lang=src, tgt_lang=tgt, original=original, translated=translated)
+                  src_lang=src, tgt_lang=tgt, original=original, translated=translated, icon=icon)
         if save and self.cfg.get("save_history", True):
             try:
                 return self.history.add(**kw)
@@ -202,4 +212,4 @@ class Engine:
             segs = [(f"{ch}{who}: ", color), (rec["translated"], "#FFFFFF")]
         if self.cfg.get("show_original", True) and rec["translated"].strip().lower() != rec["original"].lower():
             segs.append((f"{rec['src_lang']}: {rec['original']}", GRAY))
-        self.overlay.push(segs)
+        self.overlay.push(segs, icon=rec.get("icon"))

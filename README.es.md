@@ -20,11 +20,12 @@
 
 ## Qué hace
 
-- **Traduce el chat de la partida en directo** y lo muestra en un overlay transparente encima de Dota 2, con el color de cada jugador.
+- **Traduce el chat de la partida en directo** y lo muestra en un overlay transparente encima de Dota 2, con el **retrato del héroe** que escribe y su color de jugador.
 - **Responde en su idioma**: escribe en el chat de Dota como siempre y pulsa **Ctrl+Enter** en vez de Enter. Tu mensaje se traduce al idioma del equipo y se envía. Con Enter normal se envía tal cual.
 - **Elige los idiomas**: traduce el chat a más de 30 idiomas; envía tus mensajes en un idioma fijo o deja que la app detecte el del equipo.
 - **Historial de conversaciones**: cada mensaje traducido se guarda en tu PC, con búsqueda, filtro por partida y exportación a CSV.
-- **Entiende la jerga de Dota**: `мид`, `варды`, `керри`, `ez mid`… se tratan como términos del juego en vez de traducirse literalmente (y puedes añadir los tuyos).
+- **Entiende Dota**: héroes, objetos y jerga en inglés, español, ruso y chino (`мид`, `варды`, `axe ult`, `肉山`…) se tratan como términos del juego en vez de traducirse literalmente, y las abreviaturas del chat (`xq`, `щас`, `idk`…) se expanden antes. Puedes añadir las tuyas.
+- **Se actualiza sola**: cuando hay una versión nueva en GitHub, la app pregunta si quieres instalarla.
 - **Sin cuenta, sin suscripción, sin API key.** Gratis y para siempre.
 - Interfaz en español e inglés.
 
@@ -57,6 +58,7 @@ Se pueden cambiar en **Ajustes → Atajos de teclado**.
 - **Traducción** con servicios públicos gratuitos (Google Translate, con MyMemory como respaldo). Si uno limita las peticiones, la app cambia sola al siguiente durante unos minutos.
 - **Envío traducido** (Ctrl+Enter): solo simula pulsaciones de teclado mientras Dota está en primer plano: seleccionar todo → copiar → traducir → pegar → Enter. No se escribe nada en el juego.
 - **El overlay** es una ventana transparente aparte que deja pasar los clics del ratón.
+- **Retratos de héroe**: la GSI solo dice *qué jugador* (0–9) escribió, no su héroe. La barra superior del HUD de Dota muestra los héroes en ese mismo orden, así que al llegar un mensaje la app recorta ese retrato pequeño de la ventana de Dota. Se procesa en tu PC y solo se guarda en tu historial. Las posiciones se adaptan solas a tu resolución; si no encajan en tu pantalla (ultrapanorámica, 4:3…), abre **Ajustes → Overlay → Calibrar retratos**, captura la barra superior de Dota y mueve los deslizadores hasta que los recuadros encajen con los retratos; los cambios se aplican al momento.
 
 ## ¿Es seguro?
 
@@ -65,7 +67,7 @@ Se pueden cambiar en **Ajustes → Atajos de teclado**.
   - comprobar el archivo con el `SHA256SUMS.txt` de cada release: `Get-FileHash .\DotaChatTranslator.exe` en PowerShell;
   - leer el código: cada release se compila automáticamente con [GitHub Actions](.github/workflows/release.yml) a partir de este repositorio;
   - o [ejecutarla/compilarla desde el código](#compilar-desde-el-código).
-- **Privacidad.** Sin telemetría y sin cuentas. El **texto de los mensajes del chat se envía al servicio de traducción** (Google Translate / MyMemory) para traducirlo, nada más. El historial y los ajustes se quedan en tu PC.
+- **Privacidad.** Sin telemetría y sin cuentas. El **texto de los mensajes del chat se envía al servicio de traducción** (Google Translate / MyMemory) para traducirlo, nada más. Los retratos se capturan y guardan en tu PC. Al arrancar, la app pregunta a la API pública de GitHub si hay versión nueva (se puede desactivar en Ajustes). El historial y los ajustes se quedan en tu PC.
 
 ## Ajustes y datos
 
@@ -96,7 +98,7 @@ Todo se guarda en `%APPDATA%\DotaChatTranslator\` (Ajustes → *Abrir carpeta de
 ## Limitaciones
 
 - **Solo Windows**, con Dota 2 en ventana sin bordes o en ventana.
-- La GSI identifica a quien escribe solo por **color de jugador**, no por nombre ni héroe.
+- La GSI identifica a quien escribe solo por **color de jugador**, no por nombre ni héroe; el retrato se toma de la pantalla, así que necesita la barra superior de Dota visible (calibrado en 16:9; otras proporciones pueden necesitar una calibración rápida en Ajustes).
 - Los servicios de traducción gratuitos no son oficiales: la calidad es buena pero no perfecta, y podrían cambiar o limitar su uso en cualquier momento.
 
 ## Compilar desde el código

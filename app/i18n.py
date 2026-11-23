@@ -82,6 +82,21 @@ STRINGS = {
         "saved": "Guardado",
         # errores
         "err_port": "No se pudo abrir el puerto {port}. ¿Ya hay otra copia de la app abierta?",
+        # retratos
+        "sw_hero_icons": "Mostrar el retrato del héroe que escribe",
+        "test_capture": "Calibrar retratos",
+        "capture_countdown": "Cambia a Dota 2… capturando en {n}",
+        "capture_title": "Calibrar retratos de héroe",
+        "capture_help": "Entra en una partida (sirven bots), pulsa «Capturar» y cambia a Dota. Ajusta los "
+                        "deslizadores hasta que cada recuadro encaje con un retrato de la barra superior; abajo "
+                        "verás cómo quedan recortados. Luego pulsa «Guardar».",
+        "capture_none": "No se encontró la ventana de Dota 2. Ábrelo (en ventana sin bordes) y vuelve a probar.",
+        "capture_black": "La captura salió negra. Pon Dota en «Ventana sin bordes» y vuelve a capturar.",
+        "calib_capture": "Capturar", "calib_reset": "Restablecer", "calib_save": "Guardar",
+        "calib_saved": "Calibración guardada.", "calib_waiting": "Aún no hay captura.",
+        "cal_radiant_first_center": "Posición Radiant (jugador 0)", "cal_dire_first_center": "Posición Dire (jugador 5)",
+        "cal_pitch": "Separación entre retratos", "cal_half_width": "Ancho del retrato",
+        "cal_top": "Borde superior", "cal_bottom": "Borde inferior",
         # actualizaciones
         "sec_updates": "Actualizaciones", "sw_check_updates": "Buscar actualizaciones al iniciar",
         "check_now": "Buscar ahora", "current_version": "Versión instalada: {v}",
@@ -150,6 +165,20 @@ STRINGS = {
         "uninstalled_ok": "Integration removed.",
         "saved": "Saved",
         "err_port": "Could not open port {port}. Is another copy of the app already running?",
+        "sw_hero_icons": "Show the portrait of the hero who's typing",
+        "test_capture": "Calibrate portraits",
+        "capture_countdown": "Switch to Dota 2… capturing in {n}",
+        "capture_title": "Calibrate hero portraits",
+        "capture_help": "Join a match (bots are fine), press “Capture” and switch to Dota. Move the sliders until "
+                        "each box fits a portrait in the top bar; below you'll see how they get cropped. "
+                        "Then press “Save”.",
+        "capture_none": "The Dota 2 window wasn't found. Open it (borderless window) and try again.",
+        "capture_black": "The capture came out black. Set Dota to “Borderless window” and capture again.",
+        "calib_capture": "Capture", "calib_reset": "Reset", "calib_save": "Save",
+        "calib_saved": "Calibration saved.", "calib_waiting": "No capture yet.",
+        "cal_radiant_first_center": "Radiant position (player 0)", "cal_dire_first_center": "Dire position (player 5)",
+        "cal_pitch": "Spacing between portraits", "cal_half_width": "Portrait width",
+        "cal_top": "Top edge", "cal_bottom": "Bottom edge",
         "sec_updates": "Updates", "sw_check_updates": "Check for updates on startup",
         "check_now": "Check now", "current_version": "Installed version: {v}",
         "up_to_date": "You already have the latest version ({v}).", "update_check_failed": "Could not check: {err}",

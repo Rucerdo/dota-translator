@@ -103,28 +103,50 @@ _SCRIPT_HINTS = [  # (rango unicode, idioma a forzar)
 ]
 
 
-def _load_glossary() -> dict[str, list[tuple[re.Pattern, str]]]:
+_NO_SPACES = {"zh", "ja", "th"}  # idiomas sin espacios entre palabras: sin límites de palabra
+
+
+def _compile(key: str, lang: str) -> re.Pattern:
+    """'вард*' = cualquier palabra que empiece por 'вард'; si no, palabra/frase completa."""
+    stem = key.endswith("*")
+    body = re.escape(key[:-1] if stem else key) + (r"\w*" if stem else "")
+    if lang in _NO_SPACES:
+        return re.compile(body, re.I)
+    return re.compile(rf"(?<!\w){body}(?!\w)", re.I)
+
+
+def _load_glossary() -> tuple[dict, dict]:
+    """Tablas del glosario:
+      "<lang>"         términos que se PROTEGEN (no se traducen, se dejan como término de Dota)
+      "<lang>_expand"  abreviaturas que se EXPANDEN antes de traducir (xq → porque, щас → сейчас)
+    <lang> es "ru", "zh", "latin" (cualquier idioma con alfabeto latino)…"""
     tables: dict[str, dict] = {}
     for path in (resource_path("app/glossary.json"), USER_GLOSSARY_PATH):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        for lang, table in data.items():
-            if not lang.startswith("_") and isinstance(table, dict):
-                tables.setdefault(lang, {}).update(table)
-    out = {}
-    for lang, table in tables.items():
-        items = sorted(table.items(), key=lambda kv: -len(kv[0]))  # frases largas primero
-        out[lang] = [(re.compile(rf"(?<!\w){re.escape(k)}(?!\w)", re.I), v) for k, v in items]
-    return out
+        for name, table in data.items():
+            if not name.startswith("_") and isinstance(table, dict):
+                tables.setdefault(name, {}).update(table)
+    protect, expand = {}, {}
+    for name, table in tables.items():
+        lang = name.removesuffix("_expand")
+        # más largo primero (y a igual longitud, exacto antes que raíz) para que "мидас" gane a "мид*"
+        items = sorted(table.items(), key=lambda kv: (-len(kv[0].rstrip("*")), kv[0].endswith("*")))
+        compiled = [(_compile(k, lang), v) for k, v in items]
+        (expand if name.endswith("_expand") else protect)[lang] = compiled
+    return protect, expand
 
 
-_GLOSSARY = _load_glossary()
+_GLOSSARY, _EXPAND = _load_glossary()
 
 
 def _apply_glossary(text: str, lang: str) -> tuple[str, list[str]]:
-    """Sustituye jerga por marcadores {n} que Google no traduce."""
+    """Expande abreviaturas y sustituye la jerga por marcadores {n} que Google no traduce."""
+    key = lang.split("-")[0]
+    for rx, repl in _EXPAND.get(key, []):
+        text = rx.sub(repl, text)
     terms: list[str] = []
 
     def sub(repl):
@@ -133,7 +155,7 @@ def _apply_glossary(text: str, lang: str) -> tuple[str, list[str]]:
             return f" {{{len(terms) - 1}}} "
         return f
 
-    for rx, repl in _GLOSSARY.get(lang.split("-")[0], []):
+    for rx, repl in _GLOSSARY.get(key, []):
         text = rx.sub(sub(repl), text)
     return re.sub(r"\s+", " ", text).strip(), terms
 
@@ -158,6 +180,8 @@ def translate_chat(text: str, target: str) -> tuple[str, str]:
             out = translate(text, target, source=lang)[0]
         return out, lang
     prepared, terms = _apply_glossary(text, "latin")
+    if not terms and prepared != text:  # solo hubo expansiones
+        return translate(prepared, target)
     if terms:
         out, detected = translate(prepared, target)
         out = _restore(out, terms)
