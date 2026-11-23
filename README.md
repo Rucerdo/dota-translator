@@ -111,8 +111,8 @@ Everything is stored in `%APPDATA%\DotaChatTranslator\` (Settings → *Open data
 Requires Windows and Python 3.10+.
 
 ```powershell
-git clone https://github.com/<your-user>/dota-chat-translator.git
-cd dota-chat-translator
+git clone https://github.com/Rucerdo/dota-translator.git
+cd dota-translator
 py -m pip install -r requirements.txt
 py run.py            # run the app
 .\build.bat          # build dist\DotaChatTranslator.exe

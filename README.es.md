@@ -104,8 +104,8 @@ Todo se guarda en `%APPDATA%\DotaChatTranslator\` (Ajustes → *Abrir carpeta de
 Requiere Windows y Python 3.10+.
 
 ```powershell
-git clone https://github.com/<tu-usuario>/dota-chat-translator.git
-cd dota-chat-translator
+git clone https://github.com/Rucerdo/dota-translator.git
+cd dota-translator
 py -m pip install -r requirements.txt
 py run.py            # ejecutar la app
 .\build.bat          # generar dist\DotaChatTranslator.exe

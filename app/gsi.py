@@ -106,7 +106,15 @@ class GSIServer:
             def log_message(self, *a):
                 pass
 
-        self._srv = ThreadingHTTPServer(("127.0.0.1", self.port), Handler)  # OSError si el puerto está ocupado
+        # Reintentos: tras una actualización, la versión anterior puede tardar un momento en liberar el puerto.
+        for attempt in range(20):
+            try:
+                self._srv = ThreadingHTTPServer(("127.0.0.1", self.port), Handler)
+                break
+            except OSError:
+                if attempt == 19:
+                    raise  # el puerto sigue ocupado: otra copia abierta u otro programa
+                time.sleep(0.5)
         threading.Thread(target=self._srv.serve_forever, daemon=True).start()
         log.info("GSI escuchando en 127.0.0.1:%s", self.port)
 

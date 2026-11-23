@@ -82,6 +82,19 @@ STRINGS = {
         "saved": "Guardado",
         # errores
         "err_port": "No se pudo abrir el puerto {port}. ¿Ya hay otra copia de la app abierta?",
+        # actualizaciones
+        "sec_updates": "Actualizaciones", "sw_check_updates": "Buscar actualizaciones al iniciar",
+        "check_now": "Buscar ahora", "current_version": "Versión instalada: {v}",
+        "up_to_date": "Ya tienes la última versión ({v}).", "update_check_failed": "No se pudo comprobar: {err}",
+        "update_title": "Nueva versión disponible",
+        "update_text": "Hay una versión nueva de Dota Chat Translator: {new} (tienes la {cur}).",
+        "update_now": "Actualizar ahora", "update_later": "Más tarde", "update_skip": "Omitir esta versión",
+        "update_open_page": "Abrir página de descarga", "update_notes": "Novedades",
+        "update_downloading": "Descargando… {pct}%", "update_verifying": "Verificando…",
+        "update_restarting": "Instalando y reiniciando…",
+        "update_failed": "La actualización falló: {err}\n\nPuedes descargarla a mano desde GitHub.",
+        "update_manual": "Esta copia no puede actualizarse sola (se ejecuta desde el código o la carpeta no "
+                         "permite escribir). Se abrirá la página de descarga.",
         "preview_1": "иди мид, я на харде", "preview_2": "我们推塔吧",
     },
     "en": {
@@ -137,6 +150,18 @@ STRINGS = {
         "uninstalled_ok": "Integration removed.",
         "saved": "Saved",
         "err_port": "Could not open port {port}. Is another copy of the app already running?",
+        "sec_updates": "Updates", "sw_check_updates": "Check for updates on startup",
+        "check_now": "Check now", "current_version": "Installed version: {v}",
+        "up_to_date": "You already have the latest version ({v}).", "update_check_failed": "Could not check: {err}",
+        "update_title": "New version available",
+        "update_text": "A new version of Dota Chat Translator is available: {new} (you have {cur}).",
+        "update_now": "Update now", "update_later": "Later", "update_skip": "Skip this version",
+        "update_open_page": "Open download page", "update_notes": "What's new",
+        "update_downloading": "Downloading… {pct}%", "update_verifying": "Verifying…",
+        "update_restarting": "Installing and restarting…",
+        "update_failed": "The update failed: {err}\n\nYou can download it manually from GitHub.",
+        "update_manual": "This copy can't update itself (it runs from source or its folder isn't writable). "
+                         "The download page will open.",
         "preview_1": "иди мид, я на харде", "preview_2": "我们推塔吧",
     },
 }

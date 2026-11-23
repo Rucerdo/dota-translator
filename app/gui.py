@@ -2,7 +2,9 @@
 import logging
 import os
 import queue
+import threading
 import tkinter as tk
+import webbrowser
 from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
@@ -11,7 +13,7 @@ import keyboard
 
 from . import APP_NAME, __version__
 from . import config as cfgmod
-from . import dota
+from . import dota, updater
 from .core import Engine
 from .gsi import SLOT_COLORS
 from .i18n import LANGUAGES, UI_LANGS, lang_from_label, lang_label, set_lang, t
@@ -72,6 +74,33 @@ class App(ctk.CTk):
         self.after(200, self._poll)
         self.after(500, self._refresh_status)
         self.after(300, self._bring_to_front)
+        updater.cleanup_old()
+        if cfg.get("check_updates", True):
+            self.after(2500, lambda: self._check_updates(manual=False))
+
+    # ================= actualizaciones =================
+    def _check_updates(self, manual: bool):
+        def run():
+            try:
+                info, err = updater.check_latest(), None
+            except Exception as ex:
+                log.warning("no se pudo comprobar actualizaciones: %s", ex)
+                info, err = None, ex
+            self.engine.events.put(("update", (info, err, manual)))
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_update_result(self, info, err, manual: bool):
+        if err is not None:
+            if manual:
+                messagebox.showerror(APP_NAME, t("update_check_failed", err=err))
+            return
+        if info is None:
+            if manual:
+                messagebox.showinfo(APP_NAME, t("up_to_date", v=__version__))
+            return
+        if not manual and info.version == self.cfg.get("skip_version"):
+            return
+        UpdateDialog(self, info)
 
     def _bring_to_front(self):
         self.deiconify()
@@ -549,6 +578,17 @@ class App(ctk.CTk):
         self.e_port.insert(0, str(cfg["gsi_port"]))
         self.e_port.grid(row=4, column=1, padx=16, pady=(6, 16), sticky="w")
         self.e_port.bind("<FocusOut>", lambda _e: self._set_port())
+
+        # --- Actualizaciones
+        up = section(t("sec_updates"))
+        label(up, 1, t("current_version", v=__version__))
+        self.v_updates = tk.BooleanVar(value=cfg.get("check_updates", True))
+        ctk.CTkSwitch(up, text=t("sw_check_updates"), variable=self.v_updates, progress_color=ACCENT,
+                      font=font(13), command=lambda: e.set("check_updates", bool(self.v_updates.get()))).grid(
+            row=2, column=0, columnspan=2, padx=16, pady=6, sticky="w")
+        ctk.CTkButton(up, text=t("check_now"), width=150, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                      command=lambda: self._check_updates(manual=True)).grid(row=3, column=0, padx=16,
+                                                                             pady=(6, 16), sticky="w")
         return p
 
     def _apply_hotkeys(self):
@@ -619,6 +659,8 @@ class App(ctk.CTk):
                     self._append_live(data)
                 elif kind == "cfg":
                     self.v_overlay.set(self.cfg["overlay_enabled"])
+                elif kind == "update":
+                    self._on_update_result(*data)
             except Exception:
                 log.exception("error actualizando la interfaz")
         self.after(150, self._poll)
@@ -626,3 +668,114 @@ class App(ctk.CTk):
     def on_close(self):
         self.engine.shutdown()
         self.destroy()
+
+
+class UpdateDialog(ctk.CTkToplevel):
+    """Pregunta si actualizar, descarga con barra de progreso, verifica y reinicia."""
+
+    def __init__(self, app: App, info: updater.UpdateInfo):
+        super().__init__(app, fg_color=BG)
+        self.app, self.info = app, info
+        self.q: queue.Queue = queue.Queue()
+        self.title(t("update_title"))
+        self.geometry("560x440")
+        self.resizable(False, False)
+        self.transient(app)
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(2, weight=1)
+
+        ctk.CTkLabel(self, text=t("update_title"), font=font(20, "bold"), text_color=TEXT).grid(
+            row=0, column=0, padx=24, pady=(22, 4), sticky="w")
+        ctk.CTkLabel(self, text=t("update_text", new=info.version, cur=__version__), font=font(13),
+                     text_color=MUTED, wraplength=500, justify="left").grid(row=1, column=0, padx=24, sticky="w")
+        notes = ctk.CTkTextbox(self, fg_color=CARD, corner_radius=10, font=font(12), wrap="word")
+        notes.grid(row=2, column=0, padx=24, pady=12, sticky="nsew")
+        notes.insert("end", f"{t('update_notes')}\n\n{info.notes or '—'}")
+        notes.configure(state="disabled")
+
+        self.progress = ctk.CTkProgressBar(self, progress_color=ACCENT)
+        self.progress.set(0)
+        self.status = ctk.CTkLabel(self, text="", font=font(12), text_color=MUTED)
+        self.status.grid(row=4, column=0, padx=24, sticky="w")
+
+        btns = ctk.CTkFrame(self, fg_color="transparent")
+        btns.grid(row=5, column=0, padx=24, pady=(8, 20), sticky="e")
+        self.buttons = [
+            ctk.CTkButton(btns, text=t("update_skip"), width=150, fg_color="transparent", hover_color=CARD2,
+                          text_color=MUTED, command=self._skip),
+            ctk.CTkButton(btns, text=t("update_later"), width=110, fg_color=CARD2, hover_color=CARD,
+                          command=self.destroy),
+            ctk.CTkButton(btns, text=t("update_now") if updater.is_frozen() else t("update_open_page"),
+                          width=150, fg_color=ACCENT, hover_color=ACCENT_HOVER, command=self._update),
+        ]
+        for b in self.buttons:
+            b.pack(side="left", padx=(8, 0))
+        self.bind("<Return>", lambda _e: self._update())
+        self.bind("<Escape>", lambda _e: self.destroy())
+        self.after(150, self._focus)
+
+    def _focus(self):
+        self.lift()
+        self.focus_force()
+        self.grab_set()
+
+    def _skip(self):
+        self.app.engine.set("skip_version", self.info.version)
+        self.destroy()
+
+    def _update(self):
+        if not updater.can_self_update(self.info):
+            if updater.is_frozen():
+                messagebox.showinfo(APP_NAME, t("update_manual"), parent=self)
+            webbrowser.open(self.info.page_url)
+            self.destroy()
+            return
+        for b in self.buttons:
+            b.configure(state="disabled")
+        self.unbind("<Return>")
+        self.progress.grid(row=3, column=0, padx=24, pady=(0, 6), sticky="ew")
+        self.status.configure(text=t("update_downloading", pct=0))
+        threading.Thread(target=self._download, daemon=True).start()
+        self.after(100, self._poll)
+
+    def _download(self):
+        try:
+            path = updater.download(self.info, progress=lambda f: self.q.put(("progress", f)))
+            self.q.put(("done", path))
+        except Exception as ex:
+            log.exception("error descargando la actualización")
+            self.q.put(("error", ex))
+
+    def _poll(self):
+        try:
+            while True:
+                kind, data = self.q.get_nowait()
+                if kind == "progress":
+                    self.progress.set(data)
+                    self.status.configure(text=t("update_downloading", pct=int(data * 100)))
+                elif kind == "done":
+                    self.progress.set(1)
+                    self.status.configure(text=t("update_restarting"))
+                    self.update_idletasks()
+                    self.after(300, lambda p=data: self._install(p))
+                    return
+                elif kind == "error":
+                    messagebox.showerror(APP_NAME, t("update_failed", err=data), parent=self)
+                    webbrowser.open(self.info.page_url)
+                    self.destroy()
+                    return
+        except queue.Empty:
+            pass
+        self.after(100, self._poll)
+
+    def _install(self, path):
+        try:
+            self.app.engine.shutdown()  # libera el puerto para la versión nueva
+            updater.install_and_restart(path)
+        except Exception as ex:
+            log.exception("error instalando la actualización")
+            messagebox.showerror(APP_NAME, t("update_failed", err=ex), parent=self)
+            webbrowser.open(self.info.page_url)
+            self.destroy()
+            return
+        self.app.destroy()

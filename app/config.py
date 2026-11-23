@@ -55,6 +55,8 @@ DEFAULTS = {
         "translate_and_send": "ctrl+enter",
     },
     "ignore_messages": ["gg", "gg wp", "wp", "?", "??", "???", "ty", "np", "lol", "xd", "+", "-"],
+    "check_updates": True,
+    "skip_version": "",
     "gsi_port": 53123,
     "dota_dir": "",
 }
