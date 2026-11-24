@@ -41,7 +41,7 @@
 2. Run it. Windows may show *"Windows protected your PC"* because the app isn't code-signed: click **More info → Run anyway** (see [Is it safe?](#is-it-safe)).
 3. The app finds your Dota 2 folder and installs the integration automatically. If it can't, set the folder in **Settings → Dota 2**.
 4. In Dota 2 go to **Settings → Video → Display mode** and choose **Borderless window** (the overlay can't be drawn over exclusive fullscreen).
-5. **Restart Dota 2 once** so it loads the integration. The app's status turns green: *Connected to Dota 2*.
+5. **Restart Dota 2 once** so it loads the integration. When you join a match (a bot match works too), the app's status turns green: *In a match: translating chat*. Outside a match you'll see *Dota 2 open, not in a match*: that's normal, Dota only sends the chat during matches.
 6. Play. Translations appear on the left side of the screen, above Dota's own chat.
 7. To answer: in Dota press **Ctrl+Enter** (team chat) or **Ctrl+Shift+Enter** (all chat), type your message and press **Enter**. The app translates it, opens Dota's chat, pastes it and sends it. **Esc** cancels. Hotkeys and auto-send can be changed in **Settings → Write from the game**.
 

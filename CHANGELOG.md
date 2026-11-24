@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1] - 2026-11-25
+
+### Changed
+- The language you pick in the Ctrl+Enter box is remembered as your default language for your messages, so you
+  don't need to open the app to change it.
+- Clearer connection status: it now says whether Dota 2 is closed, open but not in a match, or in a match
+  (Dota only sends the chat during matches).
+
 ## [1.2.0] - 2026-11-24
 
 ### Added

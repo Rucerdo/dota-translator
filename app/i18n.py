@@ -25,7 +25,8 @@ UI_LANGS = [("es", "Español"), ("en", "English")]
 STRINGS = {
     "es": {
         "nav_home": "Inicio", "nav_live": "Chat en vivo", "nav_history": "Historial", "nav_settings": "Ajustes",
-        "status_waiting": "Esperando a Dota 2", "status_connected": "Conectado a Dota 2",
+        "status_waiting": "Esperando a Dota 2", "status_connected": "En partida: traduciendo el chat",
+        "status_no_match": "Dota 2 abierto, fuera de partida",
         "status_no_gsi": "Integración no instalada",
         # inicio
         "home_title": "Inicio",
@@ -33,8 +34,10 @@ STRINGS = {
         "dota_not_found": "No encontrado. Indica la carpeta en Ajustes.",
         "gsi_installed": "Integración instalada ✓", "gsi_not_installed": "Integración no instalada",
         "install": "Instalar integración", "uninstall": "Quitar integración",
-        "conn_waiting": "Esperando datos…\nAbre Dota 2 (reinícialo si acabas de instalar la integración).",
-        "conn_ok": "Recibiendo datos de Dota 2", "match": "Partida",
+        "conn_waiting": "Dota 2 no está abierto.\nÁbrelo y entra en una partida para empezar a traducir el chat.",
+        "conn_no_match": "Entra en una partida para empezar a traducir el chat.\n(Si acabas de instalar la "
+                         "integración, reinicia Dota 2.)",
+        "conn_ok": "Recibiendo el chat de la partida", "match": "Partida",
         "session_in": "Mensajes traducidos", "session_out": "Mensajes enviados",
         "quick_title": "Traducción",
         "translate_to": "Traducir el chat a", "send_in": "Traducir mis mensajes a",
@@ -172,15 +175,18 @@ STRINGS = {
     },
     "en": {
         "nav_home": "Home", "nav_live": "Live chat", "nav_history": "History", "nav_settings": "Settings",
-        "status_waiting": "Waiting for Dota 2", "status_connected": "Connected to Dota 2",
+        "status_waiting": "Waiting for Dota 2", "status_connected": "In a match: translating chat",
+        "status_no_match": "Dota 2 open, not in a match",
         "status_no_gsi": "Integration not installed",
         "home_title": "Home",
         "card_dota": "Dota 2", "card_connection": "Connection", "card_session": "This session",
         "dota_not_found": "Not found. Set the folder in Settings.",
         "gsi_installed": "Integration installed ✓", "gsi_not_installed": "Integration not installed",
         "install": "Install integration", "uninstall": "Remove integration",
-        "conn_waiting": "Waiting for data…\nOpen Dota 2 (restart it if you just installed the integration).",
-        "conn_ok": "Receiving data from Dota 2", "match": "Match",
+        "conn_waiting": "Dota 2 isn't running.\nOpen it and join a match to start translating the chat.",
+        "conn_no_match": "Join a match to start translating the chat.\n(If you just installed the integration, "
+                         "restart Dota 2.)",
+        "conn_ok": "Receiving the match chat", "match": "Match",
         "session_in": "Messages translated", "session_out": "Messages sent",
         "quick_title": "Translation",
         "translate_to": "Translate chat into", "send_in": "Translate my messages into",

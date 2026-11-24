@@ -41,7 +41,7 @@
 2. Ábrelo. Windows puede mostrar *«Windows protegió su PC»* porque la app no está firmada: pulsa **Más información → Ejecutar de todas formas** (ver [¿Es seguro?](#es-seguro)).
 3. La app encuentra tu carpeta de Dota 2 e instala la integración sola. Si no la encuentra, indícala en **Ajustes → Dota 2**.
 4. En Dota 2: **Ajustes → Vídeo → Modo de pantalla → Ventana sin bordes** (el overlay no se puede dibujar sobre la pantalla completa exclusiva).
-5. **Reinicia Dota 2 una vez** para que cargue la integración. El estado de la app se pone en verde: *Conectado a Dota 2*.
+5. **Reinicia Dota 2 una vez** para que cargue la integración. Al entrar en una partida (vale una de bots), el estado de la app se pone en verde: *En partida: traduciendo el chat*. Fuera de partida verás *Dota 2 abierto, fuera de partida*: es normal, Dota solo envía el chat durante las partidas.
 6. Juega. Las traducciones aparecen a la izquierda de la pantalla, encima del chat de Dota.
 7. Para responder: en Dota pulsa **Ctrl+Enter** (chat de equipo) o **Ctrl+Mayús+Enter** (chat de todos), escribe tu mensaje y pulsa **Enter**. La app lo traduce, abre el chat de Dota, lo pega y lo envía. **Esc** cancela. Los atajos y el envío automático se cambian en **Ajustes → Escribir desde el juego**.
 

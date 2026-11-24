@@ -281,17 +281,20 @@ class App(ctk.CTk):
             self.lbl_dota.configure(text=t("dota_not_found"), text_color=RED)
             self.lbl_gsi.configure(text=t("gsi_not_installed"), text_color=YELLOW)
             self.btn_gsi.configure(text=t("nav_settings"), fg_color=ACCENT)
-        if e.gsi.connected:
+        from .winkeys import dota_hwnd
+        if e.gsi.in_match:
             self.lbl_conn.configure(text=t("conn_ok"), text_color=GREEN)
             mid = e.gsi.match_id
             self.lbl_match.configure(text=f"{t('match')}: {t('practice') if mid in ('', '0') else mid}")
             self.status_dot.configure(text_color=GREEN)
             self.status_text.configure(text=t("status_connected"))
         else:
-            self.lbl_conn.configure(text=t("conn_waiting"), text_color=YELLOW)
+            dota_open = e.gsi.connected or bool(dota_hwnd())
+            self.lbl_conn.configure(text=t("conn_no_match") if dota_open else t("conn_waiting"), text_color=YELLOW)
             self.lbl_match.configure(text="")
             self.status_dot.configure(text_color=YELLOW if inst else RED)
-            self.status_text.configure(text=t("status_waiting") if inst else t("status_no_gsi"))
+            self.status_text.configure(text=(t("status_no_match") if dota_open else t("status_waiting")) if inst
+                                       else t("status_no_gsi"))
         self.lbl_in.configure(text=str(e.stats["in"]))
         self.lbl_out.configure(text=str(e.stats["out"]))
         if not once:
@@ -1251,7 +1254,7 @@ class ComposeBox(ctk.CTkToplevel):
         self.v_lang = tk.StringVar()
         ctk.CTkOptionMenu(frame, values=[t("auto_team")] + [lang_label(c) for c, _ in LANGUAGES],
                           variable=self.v_lang, width=210, height=34, fg_color=CARD2, button_color=CARD2,
-                          button_hover_color=ACCENT, dropdown_font=font(12)).grid(row=0, column=2, padx=(6, 12),
+                          button_hover_color=ACCENT, dropdown_font=font(12), command=self._remember_lang).grid(row=0, column=2, padx=(6, 12),
                                                                                   pady=(12, 4))
         ctk.CTkLabel(frame, text=t("box_hint"), font=font(11), text_color=MUTED).grid(
             row=1, column=0, columnspan=3, padx=14, pady=(0, 8), sticky="w")
@@ -1279,6 +1282,12 @@ class ComposeBox(ctk.CTkToplevel):
         self.lift()
         self.attributes("-topmost", True)
         self.after(10, self._grab_focus)
+
+    def _remember_lang(self, value: str):
+        """El idioma elegido aquí pasa a ser el de 'Traducir mis mensajes a' (se guarda, igual que en la app)."""
+        self.app.v_out.set(value)
+        self.app._on_out_lang(value)
+        self.after(10, self.entry.focus_set)  # seguir escribiendo sin volver a hacer clic
 
     def _grab_focus(self):
         hwnd = ctypes.windll.user32.GetParent(self.winfo_id()) or self.winfo_id()

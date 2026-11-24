@@ -61,6 +61,7 @@ class GSIServer:
     def __init__(self, port: int, on_message: Callable[[ChatMessage], None]):
         self.port, self.on_message = port, on_message
         self.last_payload_time = 0.0
+        self.last_map_time = 0.0  # Dota solo envía "map" dentro de una partida
         self.match_id = ""
         self._seen: dict = {}
         self._lock = threading.Lock()
@@ -69,6 +70,10 @@ class GSIServer:
     @property
     def connected(self) -> bool:
         return time.time() - self.last_payload_time < 40  # heartbeat de Dota = 30 s
+
+    @property
+    def in_match(self) -> bool:
+        return time.time() - self.last_map_time < 40
 
     def _fresh(self, key) -> bool:
         now = time.time()
@@ -83,6 +88,8 @@ class GSIServer:
     def handle(self, payload: dict):
         self.last_payload_time = time.time()
         m = payload.get("map") or {}
+        if m:
+            self.last_map_time = self.last_payload_time
         if m.get("matchid") is not None:
             self.match_id = str(m.get("matchid"))
         for e in payload.get("events") or []:
