@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.2.0] - 2026-11-24
+
+### Added
+- **AI translation with many services**: Gemini, Claude, ChatGPT, Groq, DeepSeek, Mistral, Grok, OpenRouter and
+  your own/local server (Ollama, LM Studio…). Each service keeps its own key, encrypted with your Windows user.
+  The model is picked automatically, and the **Test** button shows the model and the latency. If the AI fails
+  or runs out of quota, the app falls back to Google Translate.
+- **Sign in with ChatGPT**: ChatGPT Plus/Pro users can sign in through the browser and translate using their
+  plan, without an API key. **Connect OpenRouter** creates an OpenRouter key from the browser.
+- **Spanish from Spain and Latin American Spanish** as separate languages (with AI translation).
+- **Write from the game**: press Ctrl+Enter (team) or Ctrl+Shift+Enter (all) in Dota, type in the box over the
+  game, optionally pick another language, and the message is translated and sent to Dota's chat. It uses
+  `RegisterHotKey` (no keyboard hooks) and restores the clipboard afterwards.
+- **Voice chat transcription (experimental)**: Dota's own audio is captured with Windows process loopback (no
+  virtual audio cards). Speech is cut into phrases with Silero VAD and transcribed locally with Whisper
+  (large-v3-turbo on NVIDIA GPUs). The voice engine is a separate, one-time download.
+- **Language filter for voice**: you choose which spoken languages are *not* translated.
+
+### Changed
+- The AI prompt now handles Dota slang by context, so the hand-made glossary is only used for Google Translate.
+- Sending your own translated messages now works through the hotkey box above.
+
+### Removed
+- The `keyboard` dependency. It could leave the Alt key stuck in game.
+
 ## [1.1.0] - 2026-11-23
 
 ### Added

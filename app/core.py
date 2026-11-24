@@ -1,18 +1,18 @@
-"""Motor de la app: conecta GSI, traducción, overlay, envío con Ctrl+Enter e historial."""
+"""Motor de la app: conecta GSI, traducción, overlay, voz e historial.
+
+La app NO captura ni simula teclas: tus mensajes se escriben en la propia interfaz, se traducen y se
+copian al portapapeles para pegarlos en el chat de Dota."""
 import logging
 import queue
 import threading
 import time
 from collections import Counter
 
-import keyboard
-
 from . import config as cfgmod
 from . import dota
 from .gsi import SLOT_COLORS, ChatMessage, GSIServer
 from .history import History
 from .i18n import t
-from .outgoing import OutgoingTranslator
 from .overlay import GRAY, Overlay
 from .portraits import PortraitCache
 from .translator import translate_chat
@@ -28,15 +28,23 @@ class Engine:
         self.history = History(cfgmod.HISTORY_PATH)
         self.overlay = Overlay(root, cfg["overlay"], cfg["overlay_enabled"])
         self.gsi = GSIServer(int(cfg["gsi_port"]), self.on_message)
-        self.outgoing = OutgoingTranslator(translate_chat, self.outgoing_lang, self.on_sent)
         self.lang_votes: Counter = Counter()
         self.recent: dict[str, float] = {}
         self.sent: dict[str, float] = {}
-        self.stats = {"in": 0, "out": 0}
+        self.stats = {"in": 0, "out": 0, "voice": 0}
         self.portraits = PortraitCache()
+        self.voice = None          # VoiceService cuando la voz está activa
+        self.voice_status = "stopped"
         self.lock = threading.Lock()
-        self._hotkeys: list = []
         self.dota_dir = dota.normalize(cfg.get("dota_dir")) or dota.find_dota_dir()
+        from .ai import chatgpt_plan
+        chatgpt_plan.SAVE_HOOK = self._save_chatgpt_session
+
+    def _save_chatgpt_session(self, creds_json: str):
+        """El token de ChatGPT rota al renovarse: guardar el nuevo (cifrado) sin reconfigurar el traductor."""
+        from .ai import encrypt_key
+        self.cfg.setdefault("ai_keys_enc", {})["chatgpt"] = encrypt_key(creds_json)
+        cfgmod.save(self.cfg)
 
     # ---------- ciclo de vida ----------
     def start(self):
@@ -47,15 +55,14 @@ class Engine:
                 log.info("integración GSI instalada en %s", self.dota_dir)
             except OSError:
                 log.exception("no se pudo instalar la integración GSI")
-        self.outgoing.start()
         self.apply()
+        self.sync_voice()
 
     def shutdown(self):
-        try:
-            keyboard.unhook_all()
-        except Exception:
-            pass
         self.gsi.stop()
+        if self.voice:
+            self.voice.stop()
+            self.voice = None
 
     # ---------- configuración ----------
     def set(self, path: str, value):
@@ -67,27 +74,18 @@ class Engine:
         node[keys[-1]] = value
         cfgmod.save(self.cfg)
         self.apply()
+        if keys[0] in ("voice_enabled", "voice_model", "voice_process"):
+            self.sync_voice(restart=keys[0] != "voice_enabled")
 
     def apply(self):
+        from . import translator
+        from .ai import decrypt_key
+        engine = self.cfg.get("translator_engine", "google")
+        translator.configure(engine, decrypt_key((self.cfg.get("ai_keys_enc") or {}).get(engine, "")),
+                             (self.cfg.get("ai_models") or {}).get(engine, ""),
+                             (self.cfg.get("ai_base_urls") or {}).get(engine, ""))
         self.overlay.apply_cfg(self.cfg["overlay"])
         self.overlay.set_enabled(bool(self.cfg["overlay_enabled"]))
-        self.outgoing.configure(self.cfg["hotkeys"]["translate_and_send"], bool(self.cfg["enable_outgoing"]))
-        for h in self._hotkeys:
-            try:
-                keyboard.remove_hotkey(h)
-            except (KeyError, ValueError):
-                pass
-        self._hotkeys = []
-        try:
-            self._hotkeys.append(keyboard.add_hotkey(self.cfg["hotkeys"]["toggle_overlay"], self._toggle_overlay))
-        except ValueError:
-            log.warning("atajo inválido: %s", self.cfg["hotkeys"]["toggle_overlay"])
-
-    def _toggle_overlay(self):
-        self.cfg["overlay_enabled"] = not self.cfg["overlay_enabled"]
-        cfgmod.save(self.cfg)
-        self.overlay.set_enabled(self.cfg["overlay_enabled"])
-        self.events.put(("cfg", None))
 
     # ---------- Dota / GSI ----------
     def gsi_installed(self) -> bool:
@@ -128,7 +126,7 @@ class Engine:
             if key in self.recent:
                 return
             self.recent[key] = now
-            if self.sent.pop(key, 0) > now - 30:  # eco de lo que enviaste con Ctrl+Enter
+            if self.sent.pop(key, 0) > now - 120:  # eco de un mensaje tuyo traducido y pegado en Dota
                 return
         ignore = {s.strip().lower() for s in self.cfg.get("ignore_messages", [])}
         if key in ignore or not any(c.isalpha() for c in msg.text):
@@ -159,27 +157,78 @@ class Engine:
                            icon=icon)
         self._show(rec)
 
-    # ---------- mensajes salientes ----------
-    def on_sent(self, original: str, translated: str, detected: str, lang: str):
-        with self.lock:
-            self.sent[translated.strip().lower()] = time.time()
-        self.stats["out"] += 1
-        rec = self._record("out", self.gsi.match_id, "", None, detected, lang, original, translated)
-        self._show(rec)
-
-    # ---------- pruebas ----------
-    def test_translate(self, text: str):
+    # ---------- tus mensajes (escritos en la interfaz) ----------
+    def compose(self, text: str, lang: str | None = None, mode: str = "copy"):
+        """Traduce un mensaje tuyo. lang=None → idioma por defecto (el del equipo si es 'auto').
+        mode: 'copy' (Chat en vivo: solo copiar) | 'team' / 'all' (caja del juego: enviar a ese chat).
+        El resultado llega a la interfaz como ("composed", (registro, mode))."""
         def run():
-            target = self.cfg["incoming_target_lang"]
+            target = lang or self.outgoing_lang()
             try:
                 translated, detected = translate_chat(text, target)
             except Exception:
-                log.exception("error de traducción")
+                log.exception("error traduciendo tu mensaje")
                 translated, detected = text, "?"
-            rec = self._record("test", "", "", None, detected, target, text, translated, save=False)
+            with self.lock:  # cuando Dota lo devuelva por GSI, no se vuelve a traducir
+                self.sent[translated.strip().lower()] = time.time()
+            self.stats["out"] += 1
+            channel = mode if mode in ("team", "all") else ""
+            rec = self._record("out", self.gsi.match_id, channel, None, detected, target, text, translated)
+            self.events.put(("composed", (rec, mode)))
             self._show(rec)
         threading.Thread(target=run, daemon=True).start()
 
+    # ---------- voz ----------
+    def voice_ready(self) -> bool:
+        from .voice import engine
+        return engine.ready(self.cfg.get("voice_model", "turbo"))
+
+    def sync_voice(self, restart: bool = False):
+        """Arranca o para el servicio de voz según la configuración (sin bloquear la interfaz)."""
+        want = bool(self.cfg.get("voice_enabled")) and self.voice_ready()
+        if self.voice and (restart or not want):
+            old, self.voice = self.voice, None
+            threading.Thread(target=old.stop, daemon=True).start()
+            self._on_voice_status("stopped")
+        if want and not self.voice:
+            from .voice.service import VoiceService
+            self.voice = VoiceService(lambda: self.cfg, self.on_voice_text, self._on_voice_status)
+            self.voice.start()
+
+    def _on_voice_status(self, status: str):
+        self.voice_status = status
+        self.events.put(("voice_status", status))
+
+    def on_voice_text(self, text: str, lang: str, speakers: list[int]):
+        """Una frase del chat de voz ya transcrita por Whisper."""
+        base = (lang or "").split("-")[0].lower()
+        skipped = base in {c.lower() for c in self.cfg.get("voice_skip_langs", [])}
+        if skipped and not self.cfg.get("voice_show_skipped", False):
+            log.info("voz en '%s' no se traduce (filtro de idiomas)", base)
+            return
+        pid = speakers[0] if speakers else None
+        icon = None
+        if pid is not None and self.cfg.get("show_hero_icons", True):
+            try:
+                icon = self.portraits.get(self.gsi.match_id, pid, self.cfg.get("topbar"))
+            except Exception:
+                log.exception("no se pudo obtener el retrato del héroe")
+        target = self.cfg["incoming_target_lang"]
+        same = (lang or "").split("-")[0] == target.split("-")[0]
+        if skipped or (same and self.cfg.get("skip_if_source_is_target", True)):
+            translated = text  # sin llamar al traductor
+        else:
+            try:
+                translated, _ = translate_chat(text, target)
+            except Exception:
+                log.exception("error de traducción")
+                translated = text
+        self.stats["voice"] += 1
+        rec = self._record("voice", self.gsi.match_id, "", pid, lang, target, text, translated, icon=icon)
+        rec["speakers"] = list(speakers)
+        self._show(rec)
+
+    # ---------- vista previa ----------
     def preview_overlay(self):
         self.overlay.push([(f"[{t('ch_team')}] {t('blue')}: ", SLOT_COLORS[0][1]),
                            ("ve mid, estoy en offlane" if self.cfg["ui_lang"] == "es" else "go mid, I'm offlane",
@@ -204,6 +253,14 @@ class Engine:
         self.events.put(("record", rec))
         if rec["direction"] == "out":
             segs = [(f"{t('you')} → {rec['tgt_lang']}: ", ORANGE), (rec["translated"], "#FFFFFF")]
+        elif rec["direction"] == "voice":
+            pid = rec.get("player_id")
+            known = isinstance(pid, int) and 0 <= pid < 10
+            who = t(SLOT_COLORS[pid][0]) if known else t("voice")
+            extra = len(rec.get("speakers") or []) - 1
+            if extra > 0:
+                who += f" +{extra}"
+            segs = [(f"🎤 {who}: ", SLOT_COLORS[pid][1] if known else CYAN), (rec["translated"], "#FFFFFF")]
         else:
             pid = rec.get("player_id")
             color = SLOT_COLORS[pid][1] if isinstance(pid, int) and 0 <= pid < 10 else CYAN

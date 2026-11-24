@@ -1,0 +1,9 @@
+# Motor de voz (opcional). NO va dentro del .exe: se empaqueta aparte con tools/build_voice_engine.py
+# y la app lo descarga la primera vez que se activa la voz.
+# PyAV ('av') NO se incluye: faster-whisper solo lo usa para leer archivos y la app lo sustituye
+# por un módulo vacío (ver app/voice/engine.py: _stub_av). Por eso se instala faster-whisper sin dependencias.
+ctranslate2==4.9.1
+onnxruntime==1.32.0
+tokenizers==0.23.3
+huggingface-hub==2.4.0
+numpy==2.3.2

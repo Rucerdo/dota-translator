@@ -1,5 +1,6 @@
 """Traducción gratuita con el endpoint público de Google Translate (sin API key),
 con corrección de idioma por alfabeto y glosario de jerga de Dota."""
+import collections
 import json
 import logging
 import re
@@ -62,7 +63,13 @@ def _mymemory(text, target, source):
 PROVIDERS = [("google", _google_gtx), ("google-dict", _google_dict), ("mymemory", _mymemory)]
 
 
+def _service_code(lang: str) -> str:
+    """Google y MyMemory solo tienen un español: las variantes (es-ES, es-419) solo las distingue Gemini."""
+    return "es" if lang.startswith("es-") else lang
+
+
 def translate(text: str, target: str, source: str = "auto") -> tuple[str, str]:
+    target, source = _service_code(target), _service_code(source)
     """Devuelve (texto_traducido, idioma_detectado). Prueba los proveedores en orden;
     si uno falla (p.ej. 429), lo aparta unos minutos y usa el siguiente."""
     key = (text, target, source)
@@ -129,6 +136,15 @@ def _load_glossary() -> tuple[dict, dict]:
         for name, table in data.items():
             if not name.startswith("_") and isinstance(table, dict):
                 tables.setdefault(name, {}).update(table)
+    # El nombre completo en inglés también es una entrada ('blink dagger' → 'Blink Dagger'), para que se
+    # reconozca entero antes que sus partes ('blink', 'dagger') y no salga duplicado.
+    latin = tables.setdefault("latin", {})
+    for table_name, table in list(tables.items()):
+        if table_name.endswith("_expand"):
+            continue
+        for value in list(table.values()):  # solo nombres propios ('Blink Dagger'), no frases ('are feeding')
+            if " " in value and value[0].isupper() and value.lower() not in latin:
+                latin[value.lower()] = value
     protect, expand = {}, {}
     for name, table in tables.items():
         lang = name.removesuffix("_expand")
@@ -142,21 +158,34 @@ def _load_glossary() -> tuple[dict, dict]:
 _GLOSSARY, _EXPAND = _load_glossary()
 
 
+def _inline_ok(term: str) -> bool:
+    """Siglas ('BKB', 'TP', 'HP'): Google las respeta dentro de la frase, así que van tal cual (sin marcador
+    opaco) y Google puede construir la frase con naturalidad. Los nombres de varias palabras NO son fiables
+    ('Void Spirit' acababa como 'Espíritu del Vacío'), así que esos siguen protegidos con marcador."""
+    return term.isupper() and len(term) <= 5
+
+
 def _apply_glossary(text: str, lang: str) -> tuple[str, list[str]]:
-    """Expande abreviaturas y sustituye la jerga por marcadores {n} que Google no traduce."""
+    """Expande abreviaturas; los nombres y siglas se ponen en la frase tal cual y el resto de la jerga
+    se sustituye por marcadores {n} que Google no traduce."""
     key = lang.split("-")[0]
     for rx, repl in _EXPAND.get(key, []):
         text = rx.sub(repl, text)
     terms: list[str] = []
+    inline: list[str] = []
 
     def sub(repl):
         def f(_m):
+            if _inline_ok(repl):  # marcador interno (no lo toca ninguna otra regla); se pone el nombre al final
+                inline.append(repl)
+                return f" {len(inline) - 1} "
             terms.append(repl)
             return f" {{{len(terms) - 1}}} "
         return f
 
     for rx, repl in _GLOSSARY.get(key, []):
         text = rx.sub(sub(repl), text)
+    text = re.sub("(\\d+)", lambda m: inline[int(m.group(1))], text)
     return re.sub(r"\s+", " ", text).strip(), terms
 
 
@@ -169,7 +198,63 @@ def _restore(text: str, terms: list[str]) -> str:
 _BROKEN = re.compile(r"\{\s*\d+\s*\}")
 
 
+_ENGINE = {"name": "google"}
+_CONTEXT: collections.deque = collections.deque(maxlen=6)  # últimos mensajes (contexto para la IA)
+_AI_CACHE: dict[tuple[str, str, str], tuple[str, str]] = {}
+
+
+def configure(engine: str = "google", key: str = "", model: str = "", base_url: str = ""):
+    """engine: 'google' (gratis, sin cuenta) o un proveedor de IA de app/ai (gemini, claude, openai, groq...)
+    con la clave del usuario. Google queda siempre como respaldo."""
+    from .ai import PROVIDERS
+    _ENGINE["name"] = engine if engine in PROVIDERS else "google"
+    for pid, provider in PROVIDERS.items():
+        if pid == _ENGINE["name"]:
+            provider.configure(key, model, base_url)
+        else:
+            provider.configure("", "", "")
+
+
+_INVISIBLE = re.compile("[​‌‍⁠﻿]")
+
+
 def translate_chat(text: str, target: str) -> tuple[str, str]:
+    """Traduce un mensaje del chat de Dota. Con un proveedor de IA activo, la IA (natural, entiende la jerga
+    de Dota y el contexto); si no hay o falla, Google Translate con el glosario.
+    Sin caracteres invisibles (Google los mete a veces)."""
+    out, lang = _translate_chat(text, target)
+    return re.sub(r" {2,}", " ", _INVISIBLE.sub("", out)).strip(), lang
+
+
+def _translate_chat(text: str, target: str) -> tuple[str, str]:
+    engine = _ENGINE["name"]
+    if engine != "google":
+        from .ai import PROVIDERS, AIError
+        provider = PROVIDERS[engine]
+        key = (engine, text, target)
+        if key in _AI_CACHE:
+            return _AI_CACHE[key]
+        if provider.available:
+            try:
+                # Sin glosario: la IA ya conoce la jerga de Dota y las pistas pueden despistarla.
+                # El glosario queda solo para Google (sin clave, fallo o sin cuota).
+                t0 = time.time()
+                out = provider.translate(text, target, list(_CONTEXT))
+                log.info("%s tradujo en %.2fs", provider.label, time.time() - t0)
+                _CONTEXT.append(text)
+                if len(_AI_CACHE) > 2000:
+                    _AI_CACHE.clear()
+                _AI_CACHE[key] = out
+                return out
+            except AIError as e:
+                log.warning("%s; se usa Google Translate", e)
+            except Exception:
+                log.exception("error inesperado con %s; se usa Google Translate", provider.label)
+    _CONTEXT.append(text)
+    return _translate_chat_google(text, target)
+
+
+def _translate_chat_google(text: str, target: str) -> tuple[str, str]:
     """Traducción pensada para chat de Dota: corrige la autodetección en mensajes
     cortos (p.ej. 'иди мид нуб' → ruso, no tayiko) y protege términos del juego."""
     lang = next((hint for (lo, hi), hint in _SCRIPT_HINTS if any(lo <= ord(c) <= hi for c in text)), None)

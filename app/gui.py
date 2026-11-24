@@ -1,24 +1,26 @@
 """Ventana principal (CustomTkinter): Inicio, Chat en vivo, Historial y Ajustes."""
+import ctypes
 import io
+import json
 import logging
 import os
 import queue
 import threading
+import time
 import tkinter as tk
 import webbrowser
 from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
 import customtkinter as ctk
-import keyboard
 from PIL import Image, ImageTk
 
 from . import APP_NAME, __version__
 from . import config as cfgmod
-from . import dota, portraits, updater
+from . import dota, portraits, updater, winkeys
 from .core import Engine
 from .gsi import SLOT_COLORS
-from .i18n import LANGUAGES, UI_LANGS, lang_from_label, lang_label, set_lang, t
+from .i18n import LANGUAGES, STRINGS, UI_LANGS, lang_from_label, lang_label, set_lang, t
 
 log = logging.getLogger(__name__)
 
@@ -70,7 +72,6 @@ class App(ctk.CTk):
         self.v_in = tk.StringVar(value=lang_label(cfg["incoming_target_lang"]))
         self.v_out = tk.StringVar(value=self._out_label(cfg["outgoing_lang"]))
         self.v_overlay = tk.BooleanVar(value=cfg["overlay_enabled"])
-        self.v_outgoing = tk.BooleanVar(value=cfg["enable_outgoing"])
         self.v_original = tk.BooleanVar(value=cfg["show_original"])
 
         self.grid_columnconfigure(1, weight=1)
@@ -88,6 +89,8 @@ class App(ctk.CTk):
         self.after(500, self._refresh_status)
         self.after(300, self._bring_to_front)
         updater.cleanup_old()
+        self.compose_box = ComposeBox(self)
+        self._apply_compose_hotkeys()
         if cfg.get("check_updates", True):
             self.after(2500, lambda: self._check_updates(manual=False))
 
@@ -219,11 +222,10 @@ class App(ctk.CTk):
         self._lang_row(q, 1, t("translate_to"), self.v_in, self._on_in_lang)
         self._lang_row(q, 2, t("send_in"), self.v_out, self._on_out_lang, auto=True)
         for i, (var, key, path) in enumerate([(self.v_overlay, "sw_overlay", "overlay_enabled"),
-                                              (self.v_outgoing, "sw_outgoing", "enable_outgoing"),
                                               (self.v_original, "sw_original", "show_original")]):
             ctk.CTkSwitch(q, text=t(key), variable=var, font=font(13), progress_color=ACCENT,
                           command=lambda v=var, pth=path: self.engine.set(pth, bool(v.get()))).grid(
-                row=3 + i, column=0, columnspan=2, padx=16, pady=(6 if i else 12, 6 if i < 2 else 16), sticky="w")
+                row=3 + i, column=0, columnspan=2, padx=16, pady=(6 if i else 12, 16 if i else 6), sticky="w")
 
         tips = self._card(p, t("tips_title"))
         tips.grid(row=3, column=0, sticky="ew")
@@ -311,22 +313,80 @@ class App(ctk.CTk):
         self.live.configure(state="disabled")
         self._live_empty = True
         self._live_imgs: list = []  # referencias a los PhotoImage (si no, Tk los borra)
+        # Tu mensaje para el equipo: se traduce y se copia al portapapeles (lo pegas en Dota con Ctrl+V)
         bar = ctk.CTkFrame(p, fg_color="transparent")
         bar.grid(row=2, column=0, sticky="ew", pady=(12, 0))
         bar.grid_columnconfigure(0, weight=1)
-        self.test_entry = ctk.CTkEntry(bar, placeholder_text=t("test_placeholder"), height=36, font=font(13),
-                                       fg_color=CARD, border_color=CARD2)
-        self.test_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        self.test_entry.bind("<Return>", lambda _e: self._test())
-        ctk.CTkButton(bar, text=t("test_btn"), width=100, height=36, fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                      command=self._test).grid(row=0, column=1)
+        self.compose_entry = ctk.CTkEntry(bar, placeholder_text=t("compose_placeholder"), height=38, font=font(13),
+                                          fg_color=CARD, border_color=CARD2)
+        self.compose_entry.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.compose_entry.bind("<Return>", lambda _e: self._compose())
+        self.btn_compose = ctk.CTkButton(bar, text=t("compose_btn"), width=190, height=38, fg_color=ACCENT,
+                                         hover_color=ACCENT_HOVER, command=self._compose)
+        self.btn_compose.grid(row=0, column=1)
+        self.compose_status = ctk.CTkLabel(p, text=t("compose_hint"), font=font(12), text_color=MUTED, anchor="w",
+                                           justify="left", wraplength=760)
+        self.compose_status.grid(row=3, column=0, sticky="ew", pady=(6, 0))
         return p
 
-    def _test(self):
-        text = self.test_entry.get().strip()
+    def _compose(self):
+        text = self.compose_entry.get().strip()
         if text:
-            self.engine.test_translate(text)
-            self.test_entry.delete(0, "end")
+            self.btn_compose.configure(state="disabled")
+            self.compose_status.configure(text=t("compose_working"), text_color=MUTED)
+            self.engine.compose(text)
+
+    def _on_composed(self, data):
+        rec, mode = data
+        if mode == "copy":  # desde Chat en vivo: solo copiar
+            self.btn_compose.configure(state="normal")
+            self.compose_entry.delete(0, "end")
+            self.clipboard_clear()
+            self.clipboard_append(rec["translated"])
+            self.update()  # que el portapapeles quede listo aunque la ventana pierda el foco
+            self.compose_status.configure(text=t("compose_done", lang=rec["tgt_lang"], text=rec["translated"]),
+                                          text_color=GREEN)
+            return
+        # desde la caja del juego: pegar en el chat de Dota (y enviar) y luego restaurar tu portapapeles
+        try:
+            previous = self.clipboard_get()
+        except tk.TclError:
+            previous = None
+        self.clipboard_clear()
+        self.clipboard_append(rec["translated"])
+        self.update()
+        hwnd = winkeys.dota_hwnd()
+        if not hwnd:
+            return
+        autosend = bool(self.cfg.get("compose_autosend", True))
+
+        def send():
+            winkeys.send_to_dota_chat(mode == "all", hwnd, press_enter=autosend)
+            time.sleep(0.6)
+            self.engine.events.put(("restore_clipboard", previous))
+        threading.Thread(target=send, daemon=True).start()
+
+    def _restore_clipboard(self, previous):
+        if previous is None:
+            return
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(previous)
+            self.update()
+        except tk.TclError:
+            pass
+
+    # ---------- escribir desde el juego ----------
+    def _apply_compose_hotkeys(self):
+        if not self.cfg.get("compose_enabled", True):
+            winkeys.hotkeys.set({})
+            return
+        winkeys.hotkeys.set({
+            "team": (self.cfg.get("compose_hotkey_team", "ctrl+enter"),
+                     lambda: self.engine.events.put(("compose_open", "team"))),
+            "all": (self.cfg.get("compose_hotkey_all", "ctrl+shift+enter"),
+                    lambda: self.engine.events.put(("compose_open", "all"))),
+        })
 
     def _clear_live(self):
         self.live.configure(state="normal")
@@ -340,7 +400,12 @@ class App(ctk.CTk):
         if rec["direction"] == "test":
             return t("test"), CYAN
         pid = rec.get("player_id")
-        if isinstance(pid, int) and 0 <= pid < 10:
+        known = isinstance(pid, int) and 0 <= pid < 10
+        if rec["direction"] == "voice":
+            who = f"🎤 {t(SLOT_COLORS[pid][0]) if known else t('voice')}"
+            extra = len(rec.get("speakers") or []) - 1
+            return (who + (f" +{extra}" if extra > 0 else "")), (SLOT_COLORS[pid][1] if known else CYAN)
+        if known:
             return t(SLOT_COLORS[pid][0]), SLOT_COLORS[pid][1]
         return "?", TEXT
 
@@ -445,7 +510,7 @@ class App(ctk.CTk):
         self.tree.delete(*self.tree.get_children())
         self.h_rows = {}
         self._h_imgs = {}
-        dirs = {"in": t("dir_in"), "out": t("dir_out"), "test": t("dir_test")}
+        dirs = {"in": t("dir_in"), "out": t("dir_out"), "test": t("dir_test"), "voice": "🎤 " + t("dir_voice")}
         chans = {"all": t("ch_all"), "team": t("ch_team")}
         for r in rows:
             pid = r.get("player_id")
@@ -538,17 +603,44 @@ class App(ctk.CTk):
                        lambda v: e.set("outgoing_fallback_lang", lang_from_label(v)))
         self.v_skip = tk.BooleanVar(value=cfg["skip_if_source_is_target"])
         for i, (var, key, path) in enumerate([(self.v_skip, "sw_skip_same", "skip_if_source_is_target"),
-                                              (self.v_original, "sw_original", "show_original"),
-                                              (self.v_outgoing, "sw_outgoing", "enable_outgoing")]):
+                                              (self.v_original, "sw_original", "show_original")]):
             ctk.CTkSwitch(tr, text=t(key), variable=var, progress_color=ACCENT, font=font(13),
                           command=lambda v=var, pth=path: e.set(pth, bool(v.get()))).grid(
                 row=4 + i, column=0, columnspan=2, padx=16, pady=6, sticky="w")
         label(tr, 7, t("ignore_list"))
         self.e_ignore = ctk.CTkEntry(tr, height=32, fg_color=CARD2, border_color=CARD2)
         self.e_ignore.insert(0, ", ".join(cfg["ignore_messages"]))
-        self.e_ignore.grid(row=8, column=0, columnspan=2, padx=16, pady=(0, 16), sticky="ew")
+        self.e_ignore.grid(row=8, column=0, columnspan=2, padx=16, pady=(0, 12), sticky="ew")
         self.e_ignore.bind("<FocusOut>", lambda _e: e.set(
             "ignore_messages", [s.strip() for s in self.e_ignore.get().split(",") if s.strip()]))
+        self._build_engine_rows(tr, 9)
+
+        # --- Escribir desde el juego
+        cp = section(t("sec_compose"))
+        ctk.CTkLabel(cp, text=t("compose_desc"), font=font(12), text_color=MUTED, wraplength=640,
+                     justify="left").grid(row=1, column=0, columnspan=2, padx=16, pady=(0, 8), sticky="w")
+        self.v_compose = tk.BooleanVar(value=cfg.get("compose_enabled", True))
+        ctk.CTkSwitch(cp, text=t("sw_compose"), variable=self.v_compose, progress_color=ACCENT, font=font(13),
+                      command=self._toggle_compose).grid(row=2, column=0, columnspan=2, padx=16, pady=6, sticky="w")
+        self.hk_entries = {}
+        for i, (key, ck, default) in enumerate([("compose_hk_team", "compose_hotkey_team", "ctrl+enter"),
+                                                ("compose_hk_all", "compose_hotkey_all", "ctrl+shift+enter")]):
+            label(cp, 3 + i, t(key))
+            ent = ctk.CTkEntry(cp, width=220, height=32, fg_color=CARD2, border_color=CARD2)
+            ent.insert(0, cfg.get(ck, default))
+            ent.grid(row=3 + i, column=1, padx=16, pady=6, sticky="w")
+            self.hk_entries[ck] = ent
+        self.v_autosend = tk.BooleanVar(value=cfg.get("compose_autosend", True))
+        ctk.CTkSwitch(cp, text=t("sw_autosend"), variable=self.v_autosend, progress_color=ACCENT, font=font(13),
+                      command=lambda: e.set("compose_autosend", bool(self.v_autosend.get()))).grid(
+            row=5, column=0, columnspan=2, padx=16, pady=6, sticky="w")
+        cb = ctk.CTkFrame(cp, fg_color="transparent")
+        cb.grid(row=6, column=0, columnspan=2, padx=16, pady=(6, 16), sticky="w")
+        ctk.CTkButton(cb, text=t("apply"), width=120, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                      command=self._apply_hotkeys).pack(side="left", padx=(0, 10))
+        self.hk_status = ctk.CTkLabel(cb, text="", font=font(12), text_color=MUTED)
+        self.hk_status.pack(side="left")
+        self.after(800, self._show_hotkey_status)
 
         # --- Overlay
         ov = section(t("sec_overlay"))
@@ -584,17 +676,8 @@ class App(ctk.CTk):
         ctk.CTkButton(ob, text=t("test_capture"), width=200, fg_color=CARD2, hover_color=ACCENT,
                       command=lambda: PortraitCalibrator(self)).pack(side="left")
 
-        # --- Atajos
-        hk = section(t("sec_hotkeys"))
-        self.hk_entries = {}
-        for i, (key, ck) in enumerate([("hk_overlay", "toggle_overlay"), ("hk_send", "translate_and_send")]):
-            label(hk, 1 + i, t(key))
-            ent = ctk.CTkEntry(hk, width=200, height=32, fg_color=CARD2, border_color=CARD2)
-            ent.insert(0, cfg["hotkeys"][ck])
-            ent.grid(row=1 + i, column=1, padx=16, pady=6, sticky="w")
-            self.hk_entries[ck] = ent
-        ctk.CTkButton(hk, text=t("apply"), width=120, fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                      command=self._apply_hotkeys).grid(row=3, column=0, padx=16, pady=(6, 16), sticky="w")
+        # --- Voz (experimental)
+        self._build_voice_section(section(t("sec_voice")))
 
         # --- Dota 2
         d = section(t("sec_dota"))
@@ -627,17 +710,450 @@ class App(ctk.CTk):
                                                                              pady=(6, 16), sticky="w")
         return p
 
-    def _apply_hotkeys(self):
-        for ck, ent in self.hk_entries.items():
-            hkv = ent.get().strip().lower()
+    # ================= motor de traducción =================
+    def _build_engine_rows(self, tr, row: int):
+        from . import ai
+        self._engines = {"google": t("engine_google"),
+                         **{pid: ai.PROVIDERS[pid].label for pid in ai.ORDER}, "chatgpt": t("engine_chatgpt_plan")}
+        ctk.CTkLabel(tr, text=t("engine"), font=font(13), text_color=TEXT).grid(row=row, column=0, padx=16, pady=6,
+                                                                               sticky="w")
+        self.v_engine = tk.StringVar(value=self._engines.get(self.cfg.get("translator_engine", "google"),
+                                                             self._engines["google"]))
+        ctk.CTkOptionMenu(tr, values=list(self._engines.values()), variable=self.v_engine, width=330, fg_color=CARD2,
+                          button_color=CARD2, button_hover_color=ACCENT, dropdown_font=font(12),
+                          command=lambda v: self._set_engine(next(k for k, n in self._engines.items() if n == v))
+                          ).grid(row=row, column=1, padx=16, sticky="w")
+        box = self.ai_box = ctk.CTkFrame(tr, fg_color="transparent")
+        box.grid_columnconfigure(1, weight=1)
+        self.ai_help = ctk.CTkLabel(box, text=t("ai_help"), font=font(12), text_color=MUTED, wraplength=620,
+                                    justify="left")
+        self.ai_help.grid(row=0, column=0, columnspan=2, pady=(0, 6), sticky="w")
+        # cuenta (proveedores que se conectan iniciando sesión, sin clave)
+        self.ai_acct_lbl = ctk.CTkLabel(box, text=t("ai_account"), font=font(13), text_color=TEXT)
+        self.ai_acct_lbl.grid(row=1, column=0, padx=(0, 10), pady=3, sticky="w")
+        acct = self.ai_acct = ctk.CTkFrame(box, fg_color="transparent")
+        acct.grid(row=1, column=1, pady=3, sticky="w")
+        self.ai_acct_state = ctk.CTkLabel(acct, text="", font=font(13), text_color=MUTED)
+        self.ai_acct_state.pack(side="left", padx=(0, 12))
+        self.btn_ai_login = ctk.CTkButton(acct, text=t("ai_login_chatgpt"), width=210, fg_color=ACCENT,
+                                          hover_color=ACCENT_HOVER, command=self._ai_login)
+        self.btn_ai_login.pack(side="left", padx=(0, 8))
+        self.btn_ai_logout = ctk.CTkButton(acct, text=t("ai_logout"), width=120, fg_color=CARD2, hover_color=RED,
+                                           command=self._ai_logout)
+        self.btn_ai_logout.pack(side="left")
+        self._ai_login_cancel: threading.Event | None = None
+        rows = [("ai_key", "e_ai_key", "•"), ("ai_model", "e_ai_model", None), ("ai_base_url", "e_ai_url", None)]
+        self._ai_labels = {}
+        for i, (label_key, attr, show) in enumerate(rows, start=2):
+            lbl = ctk.CTkLabel(box, text=t(label_key), font=font(13), text_color=TEXT)
+            lbl.grid(row=i, column=0, padx=(0, 10), pady=3, sticky="w")
+            ent = ctk.CTkEntry(box, height=32, fg_color=CARD2, border_color=CARD2, **({"show": show} if show else {}))
+            ent.grid(row=i, column=1, pady=3, sticky="ew")
+            ent.bind("<FocusOut>", lambda _e: self._save_ai_fields())
+            setattr(self, attr, ent)
+            self._ai_labels[attr] = lbl
+        btns = ctk.CTkFrame(box, fg_color="transparent")
+        btns.grid(row=5, column=0, columnspan=2, pady=(8, 0), sticky="w")
+        self.btn_ai_connect = ctk.CTkButton(btns, text=t("ai_connect_openrouter"), width=200, fg_color=ACCENT,
+                                            hover_color=ACCENT_HOVER, command=self._ai_login)
+        self.btn_ai_key_page = ctk.CTkButton(btns, text=t("ai_get_key"), width=170, fg_color=CARD2, hover_color=ACCENT,
+                                             command=self._open_key_page)
+        self.btn_ai_key_page.pack(side="left", padx=(0, 8))
+        ctk.CTkButton(btns, text=t("ai_test"), width=110, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                      command=self._test_ai).pack(side="left")
+        self.ai_status = ctk.CTkLabel(box, text="", font=font(12), text_color=MUTED, wraplength=620, justify="left")
+        self.ai_status.grid(row=6, column=0, columnspan=2, pady=(6, 0), sticky="w")
+        self._ai_row = row + 1
+        self._load_ai_fields()
+
+    def _engine_id(self) -> str:
+        return self.cfg.get("translator_engine", "google")
+
+    def _load_ai_fields(self):
+        """Muestra los campos del proveedor elegido (cada uno guarda su clave, modelo y URL)."""
+        from . import ai
+        pid = self._engine_id()
+        if pid not in ai.PROVIDERS:
+            self.ai_box.grid_forget()
+            return
+        p = ai.PROVIDERS[pid]
+        self.ai_box.grid(row=self._ai_row, column=0, columnspan=2, padx=16, pady=(4, 16), sticky="ew")
+        stored_key = ai.decrypt_key((self.cfg.get("ai_keys_enc") or {}).get(pid, ""))
+        for attr, value in (("e_ai_key", "" if p.oauth else stored_key),
+                            ("e_ai_model", (self.cfg.get("ai_models") or {}).get(pid, "")),
+                            ("e_ai_url", (self.cfg.get("ai_base_urls") or {}).get(pid, "") or p.default_base_url)):
+            ent = getattr(self, attr)
+            ent.delete(0, "end")
+            ent.insert(0, value)
+        self.e_ai_model.configure(placeholder_text=t("ai_model_auto", hint=p.model_hint))
+        for attr, visible in (("e_ai_url", p.has_base_url), ("e_ai_key", not p.oauth)):
+            widgets = (getattr(self, attr), self._ai_labels[attr])
+            for w in widgets:
+                (w.grid if visible else w.grid_remove)()
+        for w in (self.ai_acct, self.ai_acct_lbl):
+            (w.grid if p.oauth else w.grid_remove)()
+        self.ai_help.configure(text=t("ai_plan_help") if p.oauth else t("ai_help"))
+        self._ai_labels["e_ai_key"].configure(text=t("ai_key") if p.needs_key else t("ai_key_optional"))
+        self.btn_ai_key_page.configure(state="normal" if p.key_page else "disabled",
+                                       text=t("ai_usage_page") if p.oauth else t("ai_get_key"))
+        if pid == "openrouter":
+            self.btn_ai_connect.pack(side="left", padx=(0, 8), before=self.btn_ai_key_page)
+        else:
+            self.btn_ai_connect.pack_forget()
+        self._show_ai_account()
+        self.ai_status.configure(text="", text_color=MUTED)
+
+    def _ai_session(self) -> dict:
+        from . import ai
+        try:
+            return json.loads(ai.decrypt_key((self.cfg.get("ai_keys_enc") or {}).get("chatgpt", "")) or "{}")
+        except ValueError:
+            return {}
+
+    def _show_ai_account(self):
+        creds = self._ai_session()
+        logged = bool(creds.get("refresh_token") or creds.get("access_token"))
+        email = creds.get("email", "")
+        self.ai_acct_state.configure(text=t("ai_logged_as", email=f" ({email})" if email else "") if logged
+                                     else t("ai_not_logged"), text_color=GREEN if logged else MUTED)
+        if self._ai_login_cancel is None:
+            self.btn_ai_login.configure(text=t("ai_login_chatgpt"), fg_color=ACCENT)
+        if logged:
+            self.btn_ai_logout.pack(side="left")
+        else:
+            self.btn_ai_logout.pack_forget()
+
+    def _ai_login(self):
+        """'Iniciar sesión con ChatGPT' / 'Conectar con OpenRouter': login en el navegador, sin pegar claves."""
+        from . import ai
+        from .ai import chatgpt_plan
+        pid = self._engine_id()
+        if self._ai_login_cancel is not None:  # el botón hace de "Cancelar" mientras se espera
+            self._ai_login_cancel.set()
+            return
+        cancel = self._ai_login_cancel = threading.Event()
+        button = self.btn_ai_login if pid == "chatgpt" else self.btn_ai_connect
+        button.configure(text=t("ai_cancel"), fg_color=CARD2)
+        self.ai_status.configure(text=t("ai_login_wait"), text_color=MUTED)
+        if pid == "chatgpt" and not self.cfg.get("ai_host_id"):
+            self.engine.set("ai_host_id", chatgpt_plan.new_host_id())
+        host_id, saved = self.cfg.get("ai_host_id", ""), self._ai_session()
+        q: queue.Queue = queue.Queue()
+
+        def run():
             try:
-                keyboard.parse_hotkey(hkv)
-            except ValueError:
-                messagebox.showerror(APP_NAME, f"Hotkey: {hkv}")
+                if pid == "chatgpt":
+                    q.put((True, json.dumps(chatgpt_plan.login(host_id, saved, cancel))))
+                else:
+                    q.put((True, ai.openrouter_login(cancel)))
+            except Exception as ex:
+                q.put((False, str(ex)))
+        threading.Thread(target=run, daemon=True).start()
+
+        def poll():
+            try:
+                ok, value = q.get_nowait()
+            except queue.Empty:
+                self.after(200, poll)
                 return
-            self.cfg["hotkeys"][ck] = hkv
-        self.engine.set("hotkeys", self.cfg["hotkeys"])
-        messagebox.showinfo(APP_NAME, t("saved"))
+            self._ai_login_cancel = None
+            button.configure(text=t("ai_login_chatgpt") if pid == "chatgpt" else t("ai_connect_openrouter"),
+                             fg_color=ACCENT)
+            if cancel.is_set():
+                self.ai_status.configure(text="", text_color=MUTED)
+            elif ok:
+                self.cfg.setdefault("ai_keys_enc", {})[pid] = ai.encrypt_key(value)
+                self.engine.set("ai_keys_enc", self.cfg["ai_keys_enc"])
+                if pid != "chatgpt" and self._engine_id() == pid:
+                    self.e_ai_key.delete(0, "end")
+                    self.e_ai_key.insert(0, value)
+                self.ai_status.configure(text=t("ai_login_ok") if pid == "chatgpt" else t("ai_connected_key"),
+                                         text_color=GREEN)
+            else:
+                self.ai_status.configure(text=t("ai_login_fail", err=value), text_color=RED)
+            self._show_ai_account()
+        self.after(200, poll)
+
+    def _ai_logout(self):
+        from . import ai
+        from .ai import chatgpt_plan
+        creds = self._ai_session()
+        keep = {k: v for k, v in creds.items() if k == "client_id"}  # el registro de la app se reutiliza
+        self.cfg.setdefault("ai_keys_enc", {})["chatgpt"] = ai.encrypt_key(json.dumps(keep) if keep else "")
+        self.engine.set("ai_keys_enc", self.cfg["ai_keys_enc"])
+        threading.Thread(target=chatgpt_plan.revoke, args=(creds,), daemon=True).start()
+        self._show_ai_account()
+        self.ai_status.configure(text="", text_color=MUTED)
+
+    def _set_engine(self, engine: str):
+        self._save_ai_fields()
+        self.engine.set("translator_engine", engine)
+        self._load_ai_fields()
+
+    def _save_ai_fields(self) -> tuple[str, str, str]:
+        from . import ai
+        pid = self._engine_id()
+        if pid not in ai.PROVIDERS:
+            return "", "", ""
+        key, model, url = self.e_ai_key.get().strip(), self.e_ai_model.get().strip(), self.e_ai_url.get().strip()
+        if ai.PROVIDERS[pid].oauth:  # la "clave" es la sesión guardada, no el campo de texto
+            key = ai.decrypt_key((self.cfg.get("ai_keys_enc") or {}).get(pid, ""))
+        if not ai.PROVIDERS[pid].has_base_url:
+            url = ""
+        changed = False
+        if key != ai.decrypt_key((self.cfg.get("ai_keys_enc") or {}).get(pid, "")):
+            self.cfg.setdefault("ai_keys_enc", {})[pid] = ai.encrypt_key(key)
+            changed = True
+        for cfg_key, value in (("ai_models", model), ("ai_base_urls", url)):
+            if (self.cfg.get(cfg_key) or {}).get(pid, "") != value:
+                self.cfg.setdefault(cfg_key, {})[pid] = value
+                changed = True
+        if changed:
+            self.engine.set("ai_keys_enc", self.cfg["ai_keys_enc"])  # guarda y reconfigura el traductor
+            self.ai_status.configure(text=t("ai_saved"), text_color=MUTED)
+        return key, model, url
+
+    def _open_key_page(self):
+        from . import ai
+        p = ai.PROVIDERS.get(self._engine_id())
+        if p and p.key_page:
+            webbrowser.open(p.key_page)
+
+    def _test_ai(self):
+        from . import ai
+        pid = self._engine_id()
+        if pid not in ai.PROVIDERS:
+            return
+        key, model, url = self._save_ai_fields()
+        if ai.PROVIDERS[pid].oauth and '"refresh_token"' not in key and '"access_token"' not in key:
+            self.ai_status.configure(text=t("ai_need_login"), text_color=YELLOW)
+            return
+        if not key and ai.PROVIDERS[pid].needs_key:
+            self.ai_status.configure(text=t("ai_no_key"), text_color=YELLOW)
+            return
+        self.ai_status.configure(text=t("ai_testing"), text_color=MUTED)
+        sample, target = t("ai_sample"), self.cfg["incoming_target_lang"]
+        q: queue.Queue = queue.Queue()
+
+        def run():
+            p = ai.new_provider(pid)  # instancia aparte: la prueba no afecta a las pausas del cliente principal
+            p.configure(key, model, url)
+            try:
+                t0 = time.time()
+                out, _src = p.translate(sample, target)
+                q.put((True, p.resolved_model(), out, time.time() - t0))
+            except Exception as ex:
+                q.put((False, "", str(ex), 0.0))
+        threading.Thread(target=run, daemon=True).start()
+
+        def poll():
+            try:
+                ok, used_model, out, secs = q.get_nowait()
+            except queue.Empty:
+                self.after(150, poll)
+                return
+            if ok:
+                self.ai_status.configure(text=t("ai_ok", model=used_model, secs=f"{secs:.1f}", sample=sample, out=out),
+                                         text_color=GREEN)
+            else:
+                self.ai_status.configure(text=t("ai_fail", err=out), text_color=RED)
+        self.after(150, poll)
+
+    # ================= voz =================
+    def _build_voice_section(self, v):
+        from .voice import engine as veng
+        e, cfg = self.engine, self.cfg
+        self._veng = veng
+        self._voice_q: queue.Queue = queue.Queue()
+        self._voice_cancel: threading.Event | None = None
+        ctk.CTkLabel(v, text=t("voice_desc"), font=font(12), text_color=MUTED, wraplength=640, justify="left").grid(
+            row=1, column=0, columnspan=2, padx=16, pady=(0, 8), sticky="w")
+        self.v_voice = tk.BooleanVar(value=cfg.get("voice_enabled", False))
+        ctk.CTkSwitch(v, text=t("sw_voice"), variable=self.v_voice, progress_color=ACCENT, font=font(13),
+                      command=self._toggle_voice).grid(row=2, column=0, columnspan=2, padx=16, pady=6, sticky="w")
+
+        models = {"turbo": t("voice_model_turbo"), "small": t("voice_model_small")}
+        for row, (label, key, options) in enumerate([("voice_model", "voice_model", models)], start=3):
+            ctk.CTkLabel(v, text=t(label), font=font(13), text_color=TEXT).grid(row=row, column=0, padx=16, pady=6,
+                                                                               sticky="w")
+            var = tk.StringVar(value=options.get(cfg.get(key), next(iter(options.values()))))
+            ctk.CTkOptionMenu(v, values=list(options.values()), variable=var, width=330, fg_color=CARD2,
+                              button_color=CARD2, button_hover_color=ACCENT,
+                              command=lambda val, k=key, o=options: self._set_voice_opt(
+                                  k, next(c for c, n in o.items() if n == val))).grid(row=row, column=1, padx=16,
+                                                                                       sticky="w")
+
+        self.voice_status = ctk.CTkLabel(v, text="", font=font(12, "bold"), text_color=MUTED, wraplength=640,
+                                         justify="left")
+        self.voice_status.grid(row=5, column=0, columnspan=2, padx=16, pady=(10, 2), sticky="w")
+        self.voice_progress = ctk.CTkProgressBar(v, progress_color=ACCENT)
+        self.voice_progress.set(0)
+        btns = ctk.CTkFrame(v, fg_color="transparent")
+        btns.grid(row=7, column=0, columnspan=2, padx=16, pady=(6, 16), sticky="w")
+        self.btn_voice_main = ctk.CTkButton(btns, text="", width=260, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                                            command=self._voice_main_action)
+        self.btn_voice_main.pack(side="left", padx=(0, 8))
+
+        # Idiomas que NO se traducen en el chat de voz (el resto sí)
+        ctk.CTkLabel(v, text=t("voice_skip_title"), font=font(13, "bold"), text_color=TEXT).grid(
+            row=8, column=0, columnspan=2, padx=16, pady=(4, 0), sticky="w")
+        ctk.CTkLabel(v, text=t("voice_skip_help"), font=font(12), text_color=MUTED, wraplength=640,
+                     justify="left").grid(row=9, column=0, columnspan=2, padx=16, pady=(0, 6), sticky="w")
+        grid = ctk.CTkFrame(v, fg_color=CARD2, corner_radius=8)
+        grid.grid(row=10, column=0, columnspan=2, padx=16, pady=(0, 6), sticky="ew")
+        skip = {c.lower() for c in cfg.get("voice_skip_langs", [])}
+        self._voice_skip_vars: dict[str, tk.BooleanVar] = {}
+        for i, (code, name) in enumerate(self._voice_languages()):
+            var = tk.BooleanVar(value=code in skip)
+            self._voice_skip_vars[code] = var
+            ctk.CTkCheckBox(grid, text=name, variable=var, font=font(12), checkbox_width=18, checkbox_height=18,
+                            fg_color=ACCENT, hover_color=ACCENT_HOVER, command=self._save_voice_skip).grid(
+                row=i // 4, column=i % 4, padx=10, pady=4, sticky="w")
+        self.v_voice_show_skipped = tk.BooleanVar(value=cfg.get("voice_show_skipped", False))
+        ctk.CTkSwitch(v, text=t("sw_voice_show_skipped"), variable=self.v_voice_show_skipped, progress_color=ACCENT,
+                      font=font(13), command=lambda: e.set("voice_show_skipped", bool(self.v_voice_show_skipped.get()))
+                      ).grid(row=11, column=0, columnspan=2, padx=16, pady=(4, 16), sticky="w")
+        self._refresh_voice_ui()
+        self.after(200, self._poll_voice_download)
+
+    @staticmethod
+    def _voice_languages() -> list[tuple[str, str]]:
+        """Idiomas para el filtro de voz, por código base (Whisper detecta 'es', 'zh'... sin variante)."""
+        names = {"es": "Español", "zh": "中文"}
+        out, seen = [], set()
+        for code, name in LANGUAGES:
+            base = code.split("-")[0].lower()
+            if base not in seen:
+                seen.add(base)
+                out.append((base, names.get(base, name)))
+        return out
+
+    def _save_voice_skip(self):
+        self.engine.set("voice_skip_langs", [c for c, var in self._voice_skip_vars.items() if var.get()])
+
+    def _voice_size_estimate(self) -> str:
+        if self.cfg.get("voice_model", "turbo") == "turbo" and self._veng.nvidia_available():
+            return "≈3 GB"
+        return "≈0,6 GB" if self.cfg.get("ui_lang") == "es" else "≈0.6 GB"
+
+    def _refresh_voice_ui(self, status: str | None = None):
+        veng, key = self._veng, self.cfg.get("voice_model", "turbo")
+        downloading = self._voice_cancel is not None
+        if downloading:
+            self.btn_voice_main.configure(text=t("voice_cancel"), fg_color=CARD2)
+        elif veng.ready(key):
+            size = f"{veng.installed_size_mb() / 1000:.1f} GB"
+            self.btn_voice_main.configure(text=t("voice_remove", size=size), fg_color=CARD2)
+        else:
+            self.btn_voice_main.configure(text=t("voice_install", size=self._voice_size_estimate()), fg_color=ACCENT)
+        if downloading:
+            return
+        st = status or self.engine.voice_status
+        if not veng.ready(key):
+            text, color = t("voice_st_not_installed"), YELLOW
+        elif not self.cfg.get("voice_enabled"):
+            text, color = t("voice_st_installed"), MUTED
+        else:
+            text = t(f"voice_st_{st}") if f"voice_st_{st}" in STRINGS["en"] else st
+            color = {"listening": GREEN, "error": RED, "waiting_dota": YELLOW}.get(st, MUTED)
+        self.voice_status.configure(text=text, text_color=color)
+
+    def _set_voice_opt(self, key: str, value: str):
+        self.engine.set(key, value)
+        self._refresh_voice_ui()
+
+    def _toggle_voice(self):
+        on = bool(self.v_voice.get())
+        if on and not self._veng.ready(self.cfg.get("voice_model", "turbo")):
+            self.v_voice.set(False)
+            self._voice_main_action()  # ofrece descargar el motor
+            return
+        self.engine.set("voice_enabled", on)
+        self._refresh_voice_ui()
+
+    def _voice_main_action(self):
+        veng, key = self._veng, self.cfg.get("voice_model", "turbo")
+        if self._voice_cancel is not None:  # cancelar descarga
+            self._voice_cancel.set()
+            return
+        if veng.ready(key):
+            size = f"{veng.installed_size_mb() / 1000:.1f} GB"
+            if messagebox.askyesno(APP_NAME, t("voice_confirm_remove", size=size), icon="warning"):
+                self.v_voice.set(False)
+                self.engine.set("voice_enabled", False)
+                self.after(500, lambda: (veng.remove_all(), self._refresh_voice_ui()))
+            return
+        if not messagebox.askyesno(APP_NAME, t("voice_confirm_install", size=self._voice_size_estimate())):
+            return
+        self._voice_cancel = threading.Event()
+        self.voice_progress.grid(row=6, column=0, columnspan=2, padx=16, pady=(2, 4), sticky="ew")
+        self.voice_progress.set(0)
+        self._refresh_voice_ui()
+        cancel = self._voice_cancel
+
+        def run():
+            try:
+                veng.install(key, lambda step, done, total: self._voice_q.put(("progress", (step, done, total))),
+                             cancel)
+                self._voice_q.put(("done", None))
+            except veng.Cancelled:
+                self._voice_q.put(("cancelled", None))
+            except Exception as ex:
+                log.exception("error instalando el motor de voz")
+                self._voice_q.put(("error", ex))
+        threading.Thread(target=run, daemon=True).start()
+
+    def _poll_voice_download(self):
+        try:
+            while True:
+                kind, data = self._voice_q.get_nowait()
+                if kind == "progress":
+                    step, done, total = data
+                    self.voice_progress.set(min(1.0, done / max(1, total)))
+                    self.voice_status.configure(text_color=TEXT, text=t(
+                        "voice_st_downloading", step=t(f"voice_step_{step}"), done=f"{done / 1e9:.2f} GB",
+                        total=f"{total / 1e9:.2f} GB", pct=int(100 * done / max(1, total))))
+                else:
+                    self._voice_cancel = None
+                    self.voice_progress.grid_forget()
+                    if kind == "error":
+                        messagebox.showerror(APP_NAME, t("voice_install_failed", err=data))
+                    elif kind == "done":
+                        self.v_voice.set(True)
+                        self.engine.set("voice_enabled", True)
+                    self._refresh_voice_ui()
+        except queue.Empty:
+            pass
+        self.after(200, self._poll_voice_download)
+
+    def _toggle_compose(self):
+        self.engine.set("compose_enabled", bool(self.v_compose.get()))
+        self._apply_compose_hotkeys()
+        self.after(300, self._show_hotkey_status)
+
+    def _apply_hotkeys(self):
+        values = {}
+        for ck, ent in self.hk_entries.items():
+            combo = ent.get().strip().lower()
+            try:
+                winkeys.parse(combo)
+            except ValueError as ex:
+                self.hk_status.configure(text=f"✗ {combo}: {ex}", text_color=RED)
+                return
+            values[ck] = combo
+        for ck, combo in values.items():
+            self.engine.set(ck, combo)
+        self._apply_compose_hotkeys()
+        self.after(300, self._show_hotkey_status)
+
+    def _show_hotkey_status(self):
+        if not self.cfg.get("compose_enabled", True):
+            self.hk_status.configure(text="", text_color=MUTED)
+        elif winkeys.hotkeys.failed:
+            self.hk_status.configure(text=t("compose_hk_failed", keys=", ".join(winkeys.hotkeys.failed)),
+                                     text_color=RED)
+        else:
+            self.hk_status.configure(text=t("compose_hk_ok"), text_color=GREEN)
 
     def _browse_dota(self):
         folder = filedialog.askdirectory()
@@ -693,17 +1209,93 @@ class App(ctk.CTk):
             try:
                 if kind == "record":
                     self._append_live(data)
-                elif kind == "cfg":
-                    self.v_overlay.set(self.cfg["overlay_enabled"])
+                elif kind == "composed":
+                    self._on_composed(data)
+                elif kind == "compose_open":
+                    self.compose_box.open(data)
+                elif kind == "restore_clipboard":
+                    self._restore_clipboard(data)
                 elif kind == "update":
                     self._on_update_result(*data)
+                elif kind == "voice_status":
+                    self._refresh_voice_ui(data)
             except Exception:
                 log.exception("error actualizando la interfaz")
-        self.after(150, self._poll)
+        self.after(50, self._poll)  # rápido: la caja de escribir debe aparecer al instante
 
     def on_close(self):
+        winkeys.hotkeys.stop()
         self.engine.shutdown()
         self.destroy()
+
+
+class ComposeBox(ctk.CTkToplevel):
+    """Caja para escribir a tu equipo desde el juego: aparece sobre Dota con el atajo, traduce al idioma
+    elegido y lo pega/envía en el chat de Dota. Solo tiene el foco mientras está abierta."""
+
+    def __init__(self, app: "App"):
+        super().__init__(app, fg_color=BG)
+        self.app = app
+        self.mode = "team"
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.withdraw()
+        frame = ctk.CTkFrame(self, fg_color=CARD, corner_radius=12, border_width=2, border_color=ACCENT)
+        frame.pack(fill="both", expand=True)
+        self.chip = ctk.CTkLabel(frame, text="", width=86, height=30, corner_radius=6, fg_color=CARD2,
+                                 font=font(12, "bold"))
+        self.chip.grid(row=0, column=0, padx=(12, 6), pady=(12, 4))
+        self.entry = ctk.CTkEntry(frame, width=400, height=36, font=font(14), fg_color=CARD2, border_color=CARD2,
+                                  placeholder_text=t("box_placeholder"))
+        self.entry.grid(row=0, column=1, pady=(12, 4))
+        self.v_lang = tk.StringVar()
+        ctk.CTkOptionMenu(frame, values=[t("auto_team")] + [lang_label(c) for c, _ in LANGUAGES],
+                          variable=self.v_lang, width=210, height=34, fg_color=CARD2, button_color=CARD2,
+                          button_hover_color=ACCENT, dropdown_font=font(12)).grid(row=0, column=2, padx=(6, 12),
+                                                                                  pady=(12, 4))
+        ctk.CTkLabel(frame, text=t("box_hint"), font=font(11), text_color=MUTED).grid(
+            row=1, column=0, columnspan=3, padx=14, pady=(0, 8), sticky="w")
+        self.entry.bind("<Return>", lambda _e: self._submit())
+        self.entry.bind("<Escape>", lambda _e: self.close())
+        self.bind("<Escape>", lambda _e: self.close())
+
+    def open(self, mode: str):
+        self.mode = mode
+        self.chip.configure(text=t("ch_team") if mode == "team" else t("ch_all"),
+                            text_color=GREEN if mode == "team" else ORANGE)
+        self.v_lang.set(self.app._out_label(self.app.cfg.get("outgoing_lang", "auto")))  # idioma por defecto
+        self.entry.delete(0, "end")
+        self.update_idletasks()
+        w, h = self.winfo_reqwidth(), self.winfo_reqheight()
+        hwnd = winkeys.dota_hwnd()
+        client = portraits._client_rect(hwnd) if hwnd else None
+        if client:
+            x0, y0, cw, ch = client
+            x, y = x0 + (cw - w) // 2, y0 + int(ch * 0.62)
+        else:
+            x, y = (self.winfo_screenwidth() - w) // 2, int(self.winfo_screenheight() * 0.62)
+        self.geometry(f"+{x}+{y}")
+        self.deiconify()
+        self.lift()
+        self.attributes("-topmost", True)
+        self.after(10, self._grab_focus)
+
+    def _grab_focus(self):
+        hwnd = ctypes.windll.user32.GetParent(self.winfo_id()) or self.winfo_id()
+        winkeys.focus_window(hwnd)
+        self.focus_force()
+        self.entry.focus_set()
+
+    def close(self):
+        self.withdraw()
+        winkeys.focus_window(winkeys.dota_hwnd())  # el foco vuelve al juego
+
+    def _submit(self):
+        text = self.entry.get().strip()
+        self.close()
+        if text:
+            v = self.v_lang.get()
+            self.app.engine.compose(text, None if v == t("auto_team") else lang_from_label(v), self.mode)
 
 
 class PortraitCalibrator(ctk.CTkToplevel):
